@@ -1,0 +1,18 @@
+{
+  "id": "manual",
+  "name": "产品手册",
+  "scenario": "产品说明、操作手册、API 文档、实施指南",
+  "tone": "结构化、步骤清晰、易查阅",
+  "pandoc": {
+    "from_extensions": ["raw_html"],
+    "math": null,
+    "highlight": "breezeDark"
+  },
+  "filters": ["section.lua", "manual.lua"],
+  "defaults": {
+    "toc": true,
+    "cover": true,
+    "footer_title": false,
+    "header": true
+  }
+}

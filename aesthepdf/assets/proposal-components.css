@@ -1,0 +1,152 @@
+/* Proposal-specific components */
+
+.cover-label {
+  margin: var(--cover-label-margin-top, 18mm) 0 0;
+  color: var(--text-label);
+  font-size: var(--font-size-label);
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  line-height: 1.45;
+  text-transform: uppercase;
+}
+
+.cover-title {
+  margin: 8mm 0 0;
+  color: var(--text-primary);
+  font-size: var(--cover-title-size, 34pt);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.cover-subtitle {
+  margin: 10mm 0 0;
+  max-width: 130mm;
+  color: var(--text-body);
+  font-size: 14pt;
+  line-height: 1.65;
+}
+
+.cover-authors,
+.cover-institution,
+.cover-org,
+.cover-type,
+.cover-period,
+.cover-version-badge {
+  display: block;
+}
+
+.cover-authors {
+  margin: 8mm 0 0;
+  font-size: 12pt;
+}
+
+.cover-institution {
+  margin: 3mm 0 0;
+  font-size: 11pt;
+  color: var(--text-muted);
+}
+
+.cover-org {
+  margin: 4mm 0 0;
+  font-size: 10pt;
+  color: var(--text-muted);
+}
+
+.cover-type {
+  font-size: 10pt;
+  color: var(--text-label);
+  letter-spacing: 0.08em;
+}
+
+.cover-period {
+  font-size: 10pt;
+  color: var(--text-label);
+}
+
+.cover-version-badge {
+  display: inline-block;
+  margin-top: 6mm;
+  padding: 1mm 3mm;
+  border-radius: 999px;
+  background: var(--bg-tag);
+  color: var(--text-label);
+  font-size: 10pt;
+  font-weight: 600;
+}
+
+.cover-footer {
+  margin-top: auto;
+  padding-top: 16mm;
+  color: var(--text-muted);
+  font-size: 10pt;
+  line-height: 1.8;
+}
+
+.cover-footer strong {
+  display: block;
+  margin-bottom: 1mm;
+  color: var(--text-body);
+  font-weight: 500;
+}
+
+.toc-page h1 {
+  padding-left: 5mm;
+  border-left: var(--accent-bar-width) solid var(--accent);
+}
+
+h2.section-header {
+  margin: 8mm 0 6mm;
+  padding: 0 0 0 5mm;
+  border-left: var(--accent-bar-width) solid var(--accent);
+  color: var(--text-primary);
+  font-size: var(--font-size-h2);
+  font-weight: 700;
+  line-height: 1.15;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  page-break-after: avoid;
+}
+
+h2.section-header::before {
+  content: attr(data-label);
+  display: block;
+  margin: 0 0 2mm -5mm;
+  padding: 0 0 0 5mm;
+  color: var(--text-label);
+  font-size: var(--font-size-label);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+.tag,
+.tags span {
+  display: inline-block;
+  margin: 0 1.5mm;
+  padding: 0.6mm 2.5mm;
+  border-radius: 1.5mm;
+  background: var(--bg-tag);
+  color: var(--text-label);
+  font-size: 10pt;
+}
+
+.callout {
+  margin: 6mm 0;
+  padding: 5mm 6mm 5mm 5mm;
+  border-left: var(--accent-bar-width) solid var(--accent);
+  border-radius: 0 2mm 2mm 0;
+  background: var(--bg-panel);
+  page-break-inside: avoid;
+}
+
+.callout-title {
+  margin: 0 0 3mm;
+  color: var(--text-primary);
+  font-size: var(--font-size-h3);
+  font-weight: 700;
+}
+
+.callout p:last-child {
+  margin-bottom: 0;
+}

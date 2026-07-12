@@ -1,0 +1,13 @@
+{
+  "id": "academic",
+  "name": "学术报告",
+  "scenario": "学术论文、实验报告、技术报告、学位论文摘要",
+  "tone": "严谨、衬线排版、公式与图表",
+  "pandoc": {
+    "from_extensions": ["tex_math_dollars", "tex_math_single_backslash", "raw_html"],
+    "math": "mathml",
+    "highlight": null
+  },
+  "filters": ["section.lua", "academic.lua"],
+  "defaults": { "toc": true, "cover": true }
+}

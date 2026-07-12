@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="$lang$">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>$if(title-prefix)$$title-prefix$ – $endif$$pagetitle$</title>
+  $if(css)$
+  $for(css)$<link rel="stylesheet" href="$css$" />$endfor$
+  $endif$
+</head>
+<body$if(theme)$ class="theme-$theme$"$endif$>
+$if(cover-title)$
+$if(cover)$
+<section class="cover-page">
+  $if(title-en)$<div class="cover-label">$title-en$</div>$endif$
+  $if(doc-edition)$<div class="cover-type">$doc-edition$</div>$endif$
+  $if(doc-date)$<div class="cover-period">$doc-date$</div>$endif$
+  <h1 class="cover-title">$cover-title$</h1>
+  $if(subtitle)$<p class="cover-subtitle">$subtitle$</p>$endif$
+  $if(doc-authors)$<p class="cover-authors">$doc-authors$</p>$endif$
+  $if(doc-institution)$<p class="cover-institution">$doc-institution$</p>$endif$
+  $if(doc-platform)$<p class="cover-org">$doc-platform$</p>$endif$
+  $if(doc-version)$<span class="cover-version-badge">v$doc-version$</span>$endif$
+  <div class="cover-footer">
+    $if(doc-platform)$<strong class="cover-footer-platform">$doc-platform$</strong>$endif$
+    $if(doc-version)$<span class="cover-footer-version">版本 $doc-version$$if(doc-date)$ · $doc-date$$endif$</span><br />$endif$
+    $if(doc-edition)$<span class="cover-footer-edition">$doc-edition$</span>$endif$
+  </div>
+</section>
+$endif$
+$endif$
+
+$if(toc)$
+<section class="toc-page">
+  <h1>目录</h1>
+  <nav id="TOC" role="doc-toc">
+  $table-of-contents$
+  </nav>
+</section>
+$endif$
+
+<div class="document-body">
+$body$
+</div>
+</body>
+</html>

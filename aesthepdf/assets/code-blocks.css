@@ -1,0 +1,49 @@
+/* Shared syntax-highlighted code blocks (manual-grade). Import in any theme. */
+
+@font-face {
+  font-family: "DejaVu Sans M Nerd Font Mono";
+  src: url("../fonts/DejaVuSansMNerdFontMono-Oblique.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+pre,
+pre.sourceCode,
+div.sourceCode,
+.document-body pre,
+.document-body div.sourceCode {
+  margin: 4mm 0;
+  padding: 4mm 5mm;
+  border-radius: 2mm;
+  background: var(--code-bg, #1e293b) !important;
+  color: var(--code-fg, #e2e8f0);
+  overflow-x: auto;
+  max-width: 100%;
+  border: 0.5pt solid var(--code-border, rgba(15, 23, 42, 0.3));
+  font-family: var(--font-mono, "DejaVu Sans M Nerd Font Mono", "Consolas", monospace) !important;
+  page-break-inside: avoid;
+}
+
+pre code,
+pre.sourceCode code,
+code.sourceCode,
+.sourceCode,
+.sourceCode span,
+.document-body code,
+.document-body pre code {
+  font-family: var(--font-mono, "DejaVu Sans M Nerd Font Mono", "Consolas", monospace) !important;
+  background: transparent;
+  color: inherit;
+  font-size: 9pt;
+  line-height: 1.55;
+}
+
+code:not(pre code):not(.sourceCode) {
+  padding: 0.5mm 1.5mm;
+  border-radius: 1mm;
+  background: var(--code-inline-bg, rgba(37, 99, 235, 0.08));
+  color: var(--code-inline-fg, #1e40af);
+  font-family: var(--font-mono, "DejaVu Sans M Nerd Font Mono", "Consolas", monospace) !important;
+  font-size: 9.5pt;
+}

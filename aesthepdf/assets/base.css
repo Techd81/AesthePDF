@@ -1,0 +1,228 @@
+/* AesthePDF base — fonts, reset, TOC, tables; tokens from theme style.css */
+
+@font-face {
+  font-family: "TsangerShuYuan";
+  src: url("../fonts/TsangerShuYuanT-W02.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "TsangerShuYuan";
+  src: url("../fonts/TsangerShuYuanT-W03.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "TsangerShuYuan";
+  src: url("../fonts/TsangerShuYuanT-W04.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@page {
+  size: A4;
+  margin: var(--page-margin-top) 0 var(--page-margin-bottom);
+  background: var(--bg-page);
+}
+
+@page cover {
+  margin: 0;
+  background: var(--bg-page);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-page);
+  color: var(--text-body);
+  font-family: var(--font-serif);
+  font-size: var(--font-size-body);
+  font-weight: 400;
+  line-height: var(--line-height-body);
+}
+
+.cover-page {
+  page: cover;
+  min-height: var(--cover-min-height, 297mm);
+  padding: var(--cover-padding-y, 28mm) var(--cover-padding-x, 22mm) 24mm;
+  background: var(--bg-page);
+  page-break-after: always;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.toc-page {
+  page-break-after: always;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0 var(--page-margin-x);
+}
+
+.toc-page h1 {
+  margin: 8mm 0 10mm;
+  color: var(--text-primary);
+  font-size: var(--font-size-h2);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+#TOC {
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+#TOC > ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: toc-section;
+}
+
+#TOC ul ul {
+  display: none;
+}
+
+#TOC li {
+  display: flex;
+  align-items: baseline;
+  gap: 4mm;
+  margin: 0;
+  padding: 3.5mm 0;
+  border-bottom: 0.25pt solid var(--toc-border);
+  color: var(--text-body);
+  font-size: 11pt;
+  line-height: 1.4;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+#TOC > ul > li {
+  counter-increment: toc-section;
+}
+
+#TOC > ul > li::before {
+  content: counter(toc-section, decimal-leading-zero);
+  flex: 0 0 auto;
+  min-width: 7mm;
+  color: var(--text-muted);
+  font-size: 10pt;
+}
+
+#TOC a {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.document-body {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0 var(--page-margin-x);
+}
+
+.document-body h3 {
+  margin: 7mm 0 3mm;
+  color: var(--text-primary);
+  font-size: var(--font-size-h3);
+  font-weight: 700;
+  line-height: var(--line-height-tight, 1.45);
+}
+
+.document-body p {
+  margin: 0 0 4mm;
+  text-align: var(--text-align-body, justify);
+}
+
+.document-body ul,
+.document-body ol {
+  margin: 0 0 5mm;
+  padding-left: 6mm;
+}
+
+.document-body li {
+  margin: 0 0 2.5mm;
+}
+
+.document-body li::marker {
+  color: var(--accent);
+}
+
+table {
+  width: 100%;
+  max-width: 100%;
+  margin: 5mm 0 7mm;
+  border-collapse: collapse;
+  font-size: 10.5pt;
+  line-height: 1.55;
+  page-break-inside: avoid;
+}
+
+thead th {
+  padding: 3mm 2mm;
+  border-bottom: 0.5pt solid var(--table-border-strong);
+  color: var(--text-primary);
+  font-weight: 700;
+  text-align: left;
+}
+
+tbody td {
+  padding: 3.5mm 2mm;
+  border-bottom: 0.25pt solid var(--table-border);
+  vertical-align: top;
+}
+
+.page-break {
+  break-before: page;
+}
+
+strong {
+  font-weight: 700;
+}
+
+a {
+  color: var(--text-label);
+}
+
+/* Syntax highlighting base */
+pre {
+  margin: 4mm 0;
+  page-break-inside: avoid;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+pre sourceCode,
+pre code {
+  font-family: var(--font-mono, "Consolas", "Courier New", monospace);
+  font-size: 9.5pt;
+  line-height: 1.5;
+}
+
+code {
+  font-family: var(--font-mono, "Consolas", "Courier New", monospace);
+}
+
+/* MathML */
+math {
+  font-size: var(--math-size, 1em);
+}
+
+.document-body mtable {
+  margin: 4mm 0;
+}

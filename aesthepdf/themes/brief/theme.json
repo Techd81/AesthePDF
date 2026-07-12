@@ -1,0 +1,18 @@
+{
+  "id": "brief",
+  "name": "执行简报",
+  "scenario": "管理层简报、周报月报、一页摘要、决策备忘",
+  "tone": "高密度、快速浏览、重点突出",
+  "pandoc": {
+    "from_extensions": ["raw_html"],
+    "math": null,
+    "highlight": null
+  },
+  "filters": ["section.lua", "brief.lua"],
+  "defaults": {
+    "toc": true,
+    "cover": true,
+    "footer_title": false,
+    "header": true
+  }
+}

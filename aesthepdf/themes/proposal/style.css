@@ -1,0 +1,48 @@
+@import url("../../assets/base.css");
+@import url("../../assets/proposal-components.css");
+@import url("../../assets/code-blocks.css");
+
+:root {
+  --bg-page: #f5f4ed;
+  --bg-panel: #faf9f5;
+  --bg-tag: #e4ecf5;
+  --text-primary: #141413;
+  --text-body: #3d3d3a;
+  --text-muted: #6b6a64;
+  --text-label: #1b365d;
+  --accent: #1b365d;
+  --accent-bar-width: 3px;
+  --font-serif: "TsangerShuYuan", "Songti SC", "Noto Serif CJK SC", serif;
+  --font-size-body: 12pt;
+  --font-size-label: 10pt;
+  --font-size-h2: 22pt;
+  --font-size-h3: 13pt;
+  --line-height-body: 1.75;
+  --page-margin-x: 20mm;
+  --page-margin-top: 18mm;
+  --page-margin-bottom: 24mm;
+  --toc-border: rgba(27, 54, 93, 0.12);
+  --table-border: rgba(27, 54, 93, 0.1);
+  --table-border-strong: rgba(27, 54, 93, 0.25);
+  --font-mono: "DejaVu Sans M Nerd Font Mono", "Consolas", monospace;
+  --code-bg: #1e293b;
+  --code-fg: #e2e8f0;
+  --code-border: rgba(27, 54, 93, 0.35);
+  --code-inline-bg: rgba(27, 54, 93, 0.08);
+  --code-inline-fg: #1b365d;
+}
+
+.theme-proposal .cover-authors,
+.theme-proposal .cover-institution,
+.theme-proposal .cover-org,
+.theme-proposal .cover-type,
+.theme-proposal .cover-period,
+.theme-proposal .cover-version-badge {
+  display: none;
+}
+
+.theme-proposal .cover-footer-platform,
+.theme-proposal .cover-footer-version,
+.theme-proposal .cover-footer-edition {
+  display: block;
+}

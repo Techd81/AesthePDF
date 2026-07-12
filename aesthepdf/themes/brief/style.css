@@ -1,0 +1,437 @@
+@import url("../../assets/base.css");
+@import url("../../assets/code-blocks.css");
+
+/* Brief fonts — aesthepdf/fonts/
+   中文: SourceHanSansSC (思源黑体)
+   英文: Inter (高密度简报 UI 字体) */
+
+@font-face {
+  font-family: "Source Han Sans SC";
+  src: url("../../fonts/SourceHanSansSC-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Source Han Sans SC";
+  src: url("../../fonts/SourceHanSansSC-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("../../fonts/Inter-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("../../fonts/Inter-SemiBold.otf") format("opentype");
+  font-weight: 600;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("../../fonts/Inter-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+}
+
+:root {
+  --bg-page: #ffffff;
+  --bg-panel: #f8fafc;
+  --bg-tag: #e0f2fe;
+  --text-primary: #0f172a;
+  --text-body: #334155;
+  --text-muted: #64748b;
+  --text-label: #0369a1;
+  --accent: #0369a1;
+  --font-serif: "Inter", "Source Han Sans SC", "Segoe UI", "PingFang SC", sans-serif;
+  --font-size-body: 11pt;
+  --font-size-label: 9pt;
+  --font-size-h2: 14pt;
+  --font-size-h3: 11pt;
+  --line-height-body: 1.55;
+  --page-margin-x: 16mm;
+  --page-margin-top: 14mm;
+  --page-margin-bottom: 18mm;
+  --toc-border: rgba(3, 105, 161, 0.12);
+  --table-border: rgba(3, 105, 161, 0.1);
+  --table-border-strong: rgba(3, 105, 161, 0.25);
+  --text-align-body: left;
+  --cover-min-height: 297mm;
+  --cover-padding-x: 20mm;
+  --cover-title-size: 34pt;
+  --font-mono: "DejaVu Sans M Nerd Font Mono", "Consolas", monospace;
+  --code-bg: #0f172a;
+  --code-fg: #e2e8f0;
+  --code-border: rgba(3, 105, 161, 0.35);
+  --code-inline-bg: rgba(3, 105, 161, 0.08);
+  --code-inline-fg: #0369a1;
+}
+
+/* Brief cover — split sidebar + main editorial layout */
+.theme-brief .cover-page {
+  display: grid;
+  grid-template-columns: 54mm 1fr;
+  grid-template-rows: auto auto 1fr auto auto;
+  min-height: var(--cover-min-height);
+  padding: 0;
+  background: #ffffff;
+  position: relative;
+  overflow: hidden;
+}
+
+.theme-brief .cover-page::before {
+  content: "";
+  grid-column: 1;
+  grid-row: 1 / 5;
+  background: linear-gradient(168deg, #0c4a6e 0%, #0369a1 62%, #0284c7 100%);
+  z-index: 0;
+}
+
+.theme-brief .cover-page::after {
+  content: "";
+  grid-column: 2;
+  grid-row: 2 / 4;
+  align-self: center;
+  justify-self: end;
+  width: 42mm;
+  height: 42mm;
+  margin: 0 14mm 0 0;
+  border: 0.5pt solid rgba(3, 105, 161, 0.1);
+  border-radius: 50%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.theme-brief .cover-label {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  z-index: 1;
+  margin: 14mm 0 0;
+  padding: 0 6mm 0 8mm;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 7.5pt;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  line-height: 1.5;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  justify-self: center;
+}
+
+.theme-brief .cover-type {
+  grid-column: 1;
+  grid-row: 2;
+  z-index: 1;
+  margin: 0 8mm;
+  padding: 1mm 2.5mm;
+  border: 0.5pt solid rgba(255, 255, 255, 0.4);
+  border-radius: 0.8mm;
+  color: #e0f2fe;
+  font-size: 8pt;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  justify-self: start;
+}
+
+.theme-brief .cover-period {
+  grid-column: 1;
+  grid-row: 4;
+  align-self: end;
+  z-index: 1;
+  margin: 0 0 16mm;
+  padding: 0 8mm;
+  color: #ffffff;
+  font-size: 11pt;
+  font-weight: 700;
+  line-height: 1.45;
+  letter-spacing: 0.03em;
+}
+
+.theme-brief .cover-title {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: end;
+  z-index: 1;
+  margin: 0;
+  padding: 0 18mm 3mm 14mm;
+  color: var(--text-primary);
+  font-size: var(--cover-title-size);
+  max-width: 132mm;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.theme-brief .cover-subtitle {
+  grid-column: 2;
+  grid-row: 3;
+  align-self: start;
+  z-index: 1;
+  margin: 0;
+  padding: 0 18mm 0 14mm;
+  max-width: 128mm;
+  color: var(--text-muted);
+  font-size: 11pt;
+  line-height: 1.6;
+}
+
+.theme-brief .cover-version-badge {
+  grid-column: 2;
+  grid-row: 4;
+  align-self: end;
+  z-index: 1;
+  margin: 0 18mm 20mm 14mm;
+  padding: 1.2mm 4mm;
+  border-radius: 999px;
+  background: var(--bg-tag);
+  color: var(--accent);
+  font-size: 9.5pt;
+  font-weight: 700;
+  justify-self: start;
+}
+
+.theme-brief .cover-authors,
+.theme-brief .cover-institution,
+.theme-brief .cover-org {
+  display: none;
+}
+
+.theme-brief .cover-footer {
+  grid-column: 1 / -1;
+  grid-row: 5;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6mm;
+  margin: 0;
+  padding: 5mm var(--cover-padding-x);
+  border-top: 2pt solid var(--accent);
+  background: #f8fafc;
+}
+
+.theme-brief .cover-footer-platform {
+  display: block;
+  color: var(--text-primary);
+  font-size: 10.5pt;
+  font-weight: 600;
+}
+
+.theme-brief .cover-footer-version {
+  display: block;
+  color: var(--text-muted);
+  font-size: 9.5pt;
+  text-align: right;
+}
+
+.theme-brief .cover-footer-edition {
+  display: none;
+}
+
+/* Brief section headers */
+.brief-section {
+  display: flex;
+  align-items: center;
+  gap: 3mm;
+  margin: 6mm 0 3mm;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-h2);
+  font-weight: 700;
+  line-height: 1.3;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.brief-section::before {
+  content: "";
+  flex: 0 0 3mm;
+  align-self: stretch;
+  min-height: 5mm;
+  background: var(--accent);
+  border-radius: 0.5mm;
+}
+
+h2.brief-toc-source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.document-body h3 {
+  margin: 4mm 0 2mm;
+  font-size: var(--font-size-h3);
+  color: var(--text-label);
+}
+
+.document-body p {
+  margin-bottom: 3mm;
+}
+
+.document-body ul,
+.document-body ol {
+  margin-bottom: 3mm;
+}
+
+/* KPI row */
+.kpi-row {
+  display: flex;
+  gap: 3mm;
+  margin: 4mm 0 6mm;
+  page-break-inside: avoid;
+}
+
+.kpi-card {
+  flex: 1;
+  padding: 4mm;
+  border: 0.5pt solid var(--table-border);
+  border-top: 2pt solid var(--accent);
+  background: var(--bg-panel);
+}
+
+.kpi-name {
+  color: var(--text-muted);
+  font-size: 8.5pt;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kpi-value {
+  margin: 1.5mm 0;
+  color: var(--text-primary);
+  font-size: 18pt;
+  font-weight: 700;
+  line-height: 1.1;
+  font-family: "Inter", "Source Han Sans SC", sans-serif;
+}
+
+.kpi-delta {
+  font-size: 9pt;
+  font-weight: 600;
+}
+
+.kpi-delta-up { color: #15803d; }
+.kpi-delta-down { color: #dc2626; }
+.kpi-delta-neutral { color: var(--text-muted); }
+
+/* Timeline */
+.timeline {
+  margin: 4mm 0;
+  border-left: 1.5pt solid var(--table-border-strong);
+  padding-left: 4mm;
+  page-break-inside: avoid;
+}
+
+.timeline-item {
+  position: relative;
+  margin: 0 0 3mm;
+  padding-left: 2mm;
+}
+
+.timeline-item::before {
+  content: "";
+  position: absolute;
+  left: -5.5mm;
+  top: 1.5mm;
+  width: 2.5mm;
+  height: 2.5mm;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.timeline-date {
+  display: block;
+  color: var(--text-muted);
+  font-size: 8.5pt;
+  font-weight: 600;
+}
+
+.timeline-event {
+  display: block;
+  color: var(--text-body);
+  font-size: 10pt;
+  line-height: 1.45;
+}
+
+/* Action box */
+.action-box {
+  margin: 4mm 0;
+  padding: 4mm 5mm;
+  border: 0.5pt solid #fbbf24;
+  border-left: 3pt solid #d97706;
+  background: #fffbeb;
+  page-break-inside: avoid;
+}
+
+.action-title {
+  margin: 0 0 2mm;
+  color: #92400e;
+  font-size: 10pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.action-box p:last-child,
+.action-box ul:last-child {
+  margin-bottom: 0;
+}
+
+/* Status pills */
+.status {
+  display: inline-block;
+  padding: 0.4mm 2mm;
+  border-radius: 999px;
+  font-size: 8.5pt;
+  font-weight: 600;
+}
+
+.status-done,
+.status-status-done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-risk,
+.status-status-risk {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-warn,
+.status-status-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+table {
+  font-size: 9.5pt;
+  margin: 3mm 0 5mm;
+}
+
+thead th {
+  background: rgba(3, 105, 161, 0.06);
+  padding: 2mm;
+}
+
+tbody td {
+  padding: 2mm;
+}
+
+.toc-page h1 {
+  font-size: 16pt;
+  border-left: 3pt solid var(--accent);
+  padding-left: 4mm;
+}

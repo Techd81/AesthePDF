@@ -1,0 +1,240 @@
+@import url("../../assets/base.css");
+@import url("../../assets/code-blocks.css");
+
+/* Academic theme uses Source Han Serif SC (思源宋体).
+   Download from: https://github.com/adobe-fonts/source-han-serif/releases
+   Place in repo fonts/:
+     - SourceHanSerifSC-Regular.otf
+     - SourceHanSerifSC-Bold.otf
+   Falls back to Noto Serif CJK SC / Songti SC until files are present. */
+
+@font-face {
+  font-family: "Source Han Serif SC";
+  src: url("../../fonts/SourceHanSerifSC-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Source Han Serif SC";
+  src: url("../../fonts/SourceHanSerifSC-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+}
+
+:root {
+  --bg-page: #fafaf8;
+  --bg-panel: #f3f2ee;
+  --bg-tag: #e8e6e0;
+  --text-primary: #1a1a18;
+  --text-body: #3a3a36;
+  --text-muted: #6e6e68;
+  --text-label: #2c4a6e;
+  --accent: #2c4a6e;
+  --font-serif: "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "Times New Roman", serif;
+  --font-size-body: 12pt;
+  --font-size-label: 10pt;
+  --font-size-h2: 16pt;
+  --font-size-h3: 12pt;
+  --line-height-body: 1.6;
+  --page-margin-x: 22mm;
+  --page-margin-top: 20mm;
+  --page-margin-bottom: 24mm;
+  --toc-border: rgba(44, 74, 110, 0.12);
+  --table-border: rgba(44, 74, 110, 0.1);
+  --table-border-strong: rgba(44, 74, 110, 0.25);
+  --text-align-body: justify;
+  --math-size: 1.05em;
+  --cover-min-height: 297mm;
+  --cover-title-size: 28pt;
+  --font-mono: "DejaVu Sans M Nerd Font Mono", "Consolas", "Courier New", monospace;
+  --code-bg: #1e293b;
+  --code-fg: #e2e8f0;
+  --code-border: rgba(44, 74, 110, 0.35);
+  --code-inline-bg: rgba(44, 74, 110, 0.08);
+  --code-inline-fg: #2c4a6e;
+}
+
+.theme-academic .cover-page {
+  align-items: center;
+  text-align: center;
+  justify-content: center;
+}
+
+.theme-academic .cover-label,
+.theme-academic .cover-type,
+.theme-academic .cover-period,
+.theme-academic .cover-version-badge,
+.theme-academic .cover-footer {
+  display: none;
+}
+
+.theme-academic .cover-title {
+  margin-top: 0;
+  max-width: 160mm;
+}
+
+.theme-academic .cover-subtitle {
+  margin: 8mm auto 0;
+  max-width: 140mm;
+  font-size: 13pt;
+  color: var(--text-muted);
+}
+
+.theme-academic .cover-authors {
+  margin: 12mm 0 0;
+  font-size: 12pt;
+  color: var(--text-body);
+}
+
+.theme-academic .cover-institution {
+  margin: 4mm 0 0;
+  font-size: 11pt;
+  color: var(--text-muted);
+}
+
+.theme-academic .cover-org {
+  margin: 6mm 0 0;
+  font-size: 10pt;
+  color: var(--text-muted);
+}
+
+/* Abstract */
+.abstract {
+  margin: 0 0 8mm;
+  padding: 8mm 10mm;
+  border: 0.5pt solid var(--table-border-strong);
+  background: var(--bg-panel);
+  page-break-inside: avoid;
+}
+
+.abstract-title {
+  margin: 0 0 4mm;
+  font-size: 13pt;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.2em;
+}
+
+.abstract p:last-child {
+  margin-bottom: 0;
+}
+
+/* Section headers */
+.academic-section {
+  margin: 10mm 0 5mm;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.academic-number {
+  color: var(--text-label);
+  font-size: 11pt;
+  font-weight: 500;
+  margin-bottom: 1mm;
+}
+
+.academic-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-h2);
+  font-weight: 700;
+  line-height: 1.3;
+  border-bottom: 0.5pt solid var(--table-border-strong);
+  padding-bottom: 2mm;
+}
+
+/* Hidden heading kept for Pandoc TOC generation */
+h2.academic-toc-source {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Figures & equations */
+.figure {
+  margin: 6mm 0;
+  padding: 4mm 6mm;
+  text-align: center;
+  background: var(--bg-panel);
+  border: 0.25pt solid var(--table-border);
+  page-break-inside: avoid;
+}
+
+.figure-caption {
+  margin-top: 3mm;
+  font-size: 10pt;
+  color: var(--text-muted);
+  text-align: left;
+}
+
+.equation-block {
+  margin: 5mm 0;
+  text-align: center;
+  page-break-inside: avoid;
+}
+
+.equation-label {
+  margin-left: 4mm;
+  font-size: 10pt;
+  color: var(--text-muted);
+}
+
+math {
+  font-size: var(--math-size);
+}
+
+.document-body mtable {
+  margin: 4mm auto;
+}
+
+.document-body h3 {
+  margin-top: 5mm;
+  color: var(--text-primary);
+  font-size: var(--font-size-h3);
+  font-weight: 700;
+}
+
+.document-body h3 + p {
+  text-indent: 0;
+}
+
+.document-body table {
+  font-size: 10pt;
+}
+
+.document-body li {
+  margin-bottom: 2mm;
+}
+
+/* References — hanging indent */
+.document-body h2 + ol,
+.document-body h2 + p + ol {
+  margin-top: 3mm;
+  padding-left: 0;
+  list-style: none;
+  counter-reset: ref;
+}
+
+.document-body h2 + ol > li,
+.document-body h2 + p + ol > li {
+  position: relative;
+  margin-bottom: 2.5mm;
+  padding-left: 8mm;
+  text-indent: -8mm;
+  font-size: 10.5pt;
+  line-height: 1.55;
+}
+
+.document-body h2 + ol > li::before,
+.document-body h2 + p + ol > li::before {
+  counter-increment: ref;
+  content: counter(ref) ". ";
+  font-weight: 500;
+}

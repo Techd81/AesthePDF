@@ -1,0 +1,13 @@
+{
+  "id": "whitepaper",
+  "name": "白皮书",
+  "scenario": "行业白皮书、技术洞察、深度研究、标准解读",
+  "tone": "权威、长文阅读、编辑排版",
+  "pandoc": {
+    "from_extensions": ["raw_html"],
+    "math": null,
+    "highlight": null
+  },
+  "filters": ["section.lua", "whitepaper.lua"],
+  "defaults": { "toc": true, "cover": true }
+}

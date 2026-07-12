@@ -1,0 +1,69 @@
+# ── Local reference / design assets (not part of the OSS package) ────────
+doc/
+
+# ── Local / scratch output ────────────────────────────────────────────────
+.output/
+
+# ── Font download scratch (committed fonts live in aesthepdf/fonts/) ─────
+aesthepdf/fonts/_tmp/
+aesthepdf/fonts/*.zip
+
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+.pypy_cache/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+
+# ── Node (if tooling is added later) ─────────────────────────────────────
+node_modules/
+
+# ── Playwright / browser automation artifacts ─────────────────────────────
+playwright-report/
+test-results/
+.playwright/
+
+# ── Debug & scratch HTML (keep Pandoc template) ───────────────────────────
+*.html
+!aesthepdf/assets/template.html
+
+# ── Logs & temp ───────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
+.cache/
+
+# ── IDE / editor ──────────────────────────────────────────────────────────
+.cursor/
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# ── OS junk ───────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
