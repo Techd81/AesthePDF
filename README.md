@@ -5,7 +5,7 @@
 MIT License · 适用于方案、论文、白皮书、简报、手册等场景
 
 <p align="center">
-  <img src="images/covers.png" alt="五种主题封面预览：方案建议书、学术报告、白皮书、执行简报、产品手册" width="100%">
+  <img src="images/preview-grid.png" alt="五主题 PDF 预览拼图（3×5）：封面与内页组件展示" width="100%">
 </p>
 
 ---
@@ -41,14 +41,6 @@ Markdown (.md) + theme.json
 ### 样例预览
 
 仓库 `aesthepdf_output/` 内含五个主题的 **PDF + 源 Markdown**，可直接打开对比效果：
-
-<p align="center">
-  <img src="images/themes-overview.png" alt="五主题封面与内页对照" width="100%">
-</p>
-
-<p align="center">
-  <img src="images/samples.png" alt="五主题内页组件展示：callout、摘要、洞察框、KPI 卡片、代码高亮" width="100%">
-</p>
 
 | 主题 | PDF | Markdown 源文件 |
 |------|-----|-----------------|
@@ -252,9 +244,7 @@ AesthePDF/
 ├── README.md                 # 本文件
 ├── LICENSE                   # MIT
 ├── images/                   # README 预览拼图（由 scripts/gen_readme_images.py 生成）
-│   ├── covers.png
-│   ├── samples.png
-│   └── themes-overview.png
+│   └── preview-grid.png      # 3×5 主题预览
 ├── scripts/
 │   └── gen_readme_images.py  # 从 aesthepdf_output/*.pdf 生成预览图
 ├── aesthepdf/                # ★ Skill 产品本体（拷贝此目录安装）

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import re
 import shutil
@@ -13,8 +14,9 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from pypdf import PdfWriter
+    from pypdf import PdfReader, PdfWriter
 except ImportError:
+    PdfReader = None
     PdfWriter = None
 
 try:
@@ -209,24 +211,207 @@ def run_pandoc(
     subprocess.run(cmd, check=True)
 
 
-def _header_template(document_title: str, *, theme: str | None, enabled: bool) -> str:
+def _header_template(page_marker: str, *, theme: str | None, enabled: bool) -> str:
     if not enabled:
         return "<span></span>"
     theme_styles = {
-        "brief": (
-            "width:100%;font-size:8px;color:#64748b;text-align:center;"
-            "font-family:Inter,'Source Han Sans SC',sans-serif;letter-spacing:0.06em;"
-        ),
-        "manual": (
-            "width:100%;font-size:8px;color:#64748b;text-align:center;"
-            "font-family:'Source Sans 3','Source Han Sans SC',sans-serif;letter-spacing:0.04em;"
-        ),
+        "proposal": ("#9a9892", "serif", "20mm", "0.04em"),
+        "academic": ("#64748b", "serif", "22mm", "0.04em"),
+        "whitepaper": ("#78716c", "serif", "24mm", "0.04em"),
+        "brief": ("#64748b", "Inter,'Source Han Sans SC',sans-serif", "16mm", "0.06em"),
+        "manual": ("#64748b", "'Source Sans 3','Source Han Sans SC',sans-serif", "18mm", "0.04em"),
     }
-    style = theme_styles.get(
-        theme,
-        "width:100%;font-size:8px;color:#9a9892;text-align:center;font-family:serif;",
+    color, font_family, padding_x, letter_spacing = theme_styles.get(
+        theme, theme_styles["proposal"]
     )
-    return f'<div style="{style}">{document_title}</div>'
+    style = (
+        f"width:100%;box-sizing:border-box;padding:0 {padding_x};font-size:8px;"
+        f"color:{color};text-align:right;font-family:{font_family};"
+        f"letter-spacing:{letter_spacing};white-space:nowrap;overflow:hidden;"
+        "text-overflow:ellipsis;"
+    )
+    return f'<div style="{style}">{html.escape(page_marker)}</div>'
+
+
+def _install_page_marker_probes(page: Any) -> list[dict[str, Any]]:
+    """Attach extractable, visually transparent tokens to running-header sources."""
+    return page.evaluate(
+        """() => {
+          const entries = [...document.querySelectorAll('.document-body h2.section-header')]
+            .map((source) => ({
+              source,
+              text: source.getAttribute('page-header')
+                || source.getAttribute('data-page-header')
+                || source.textContent.trim(),
+              carry: true,
+            }));
+
+          const abstractTitle = document.querySelector('.document-body .abstract-title');
+          if (abstractTitle) {
+            entries.push({
+              source: abstractTitle,
+              text: abstractTitle.textContent.trim(),
+              carry: true,
+            });
+          }
+
+          const tocTitle = document.querySelector('.toc-page > h1');
+          if (tocTitle) {
+            entries.push({
+              source: tocTitle,
+              text: tocTitle.textContent.trim(),
+              carry: false,
+            });
+          }
+
+          entries.sort((a, b) => {
+            if (a.source === b.source) return 0;
+            return a.source.compareDocumentPosition(b.source) & Node.DOCUMENT_POSITION_FOLLOWING
+              ? -1
+              : 1;
+          });
+
+          return entries.map((entry, index) => {
+            const token = `AESTHEPDFMARKER${String(index).padStart(4, '0')}`;
+            let target = entry.source;
+            const isClippedTocSource = target.matches([
+              '.academic-toc-source',
+              '.manual-toc-source',
+              '.wp-toc-source',
+              '.brief-toc-source',
+            ].join(','));
+            if (getComputedStyle(target).display === 'none' || isClippedTocSource) {
+              let sibling = target.nextElementSibling;
+              while (sibling && getComputedStyle(sibling).display === 'none') {
+                sibling = sibling.nextElementSibling;
+              }
+              target = sibling || target.parentElement;
+            }
+
+            const probe = document.createElement('span');
+            probe.className = 'aesthepdf-page-marker-probe';
+            probe.textContent = token;
+            probe.style.cssText = [
+              'position:absolute',
+              'top:0',
+              'left:0',
+              'font:1px Arial,sans-serif',
+              'line-height:1',
+              'color:rgba(0,0,0,0.01)',
+              'white-space:nowrap',
+            ].join(';');
+            if (getComputedStyle(target).position === 'static') {
+              target.dataset.aesthepdfProbePosition = target.style.position;
+              target.style.position = 'relative';
+            }
+            target.appendChild(probe);
+            return { token, text: entry.text, carry: entry.carry };
+          });
+        }"""
+    )
+
+
+def _remove_page_marker_probes(page: Any) -> None:
+    page.evaluate(
+        """() => {
+          document.querySelectorAll('.aesthepdf-page-marker-probe').forEach((probe) => {
+            const target = probe.parentElement;
+            probe.remove();
+            if (target && Object.hasOwn(target.dataset, 'aesthepdfProbePosition')) {
+              target.style.position = target.dataset.aesthepdfProbePosition;
+              delete target.dataset.aesthepdfProbePosition;
+            }
+          });
+        }"""
+    )
+
+
+def _resolve_page_markers(
+    page_texts: list[str],
+    marker_sources: list[dict[str, Any]],
+    document_title: str,
+    marker_positions: list[dict[str, float]] | None = None,
+    page_heights: list[float] | None = None,
+) -> list[str]:
+    """Resolve the section active at the top of each PDF page."""
+    starts: dict[int, list[tuple[int, str, str, bool]]] = {}
+    compact_pages = [re.sub(r"\s+", "", text) for text in page_texts]
+    for source_index, source in enumerate(marker_sources):
+        for page_index, page_text in enumerate(compact_pages):
+            marker_offset = page_text.find(source["token"])
+            if marker_offset != -1:
+                starts.setdefault(page_index, []).append(
+                    (
+                        source_index,
+                        source["token"],
+                        source["text"],
+                        source.get("carry", True),
+                    )
+                )
+                break
+
+    current = document_title
+    resolved: list[str] = []
+    for page_index, page_text in enumerate(page_texts):
+        page_starts = sorted(starts.get(page_index, []))
+        begins_with_section = False
+        if page_starts:
+            first_token = page_starts[0][1]
+            if marker_positions and page_heights:
+                marker_y = marker_positions[page_index].get(first_token)
+                if marker_y is not None:
+                    begins_with_section = marker_y >= page_heights[page_index] * 0.70
+            else:
+                begins_with_section = compact_pages[page_index].find(first_token) <= 120
+
+        if page_starts and begins_with_section:
+            resolved.append(page_starts[0][2])
+        elif current == document_title and "目录" in page_text:
+            resolved.append("目录")
+        else:
+            resolved.append(current)
+
+        if page_starts:
+            carrying_starts = [start for start in page_starts if start[3]]
+            if carrying_starts:
+                current = carrying_starts[-1][2]
+    return resolved
+
+
+def _read_probe_pdf(
+    probe_pdf: Path, marker_sources: list[dict[str, Any]]
+) -> tuple[list[str], list[dict[str, float]], list[float]]:
+    """Extract marker locations from the pagination probe."""
+    reader = PdfReader(str(probe_pdf))
+    tokens = [source["token"] for source in marker_sources]
+    page_texts: list[str] = []
+    marker_positions: list[dict[str, float]] = []
+    page_heights: list[float] = []
+
+    for pdf_page in reader.pages:
+        positions: dict[str, float] = {}
+
+        def visit_text(
+            text: str,
+            current_transform: list[float],
+            text_matrix: list[float],
+            _font: dict[str, Any] | None,
+            _font_size: float,
+        ) -> None:
+            compact_text = re.sub(r"\s+", "", text)
+            for token in tokens:
+                if token in compact_text:
+                    positions[token] = float(
+                        text_matrix[4] * current_transform[1]
+                        + text_matrix[5] * current_transform[3]
+                        + current_transform[5]
+                    )
+
+        page_texts.append(pdf_page.extract_text(visitor_text=visit_text) or "")
+        marker_positions.append(positions)
+        page_heights.append(float(pdf_page.mediabox.height))
+
+    return page_texts, marker_positions, page_heights
 
 
 def print_pdf(
@@ -239,8 +424,9 @@ def print_pdf(
     header: bool = True,
     theme: str | None = None,
 ) -> None:
+    safe_document_title = html.escape(document_title)
     footer_inner = (
-        f'<span class="pageNumber"></span> · {document_title}'
+        f'<span class="pageNumber"></span> · {safe_document_title}'
         if footer_title
         else '<span class="pageNumber"></span>'
     )
@@ -250,27 +436,74 @@ def print_pdf(
         f"{footer_inner}"
         "</div>"
     )
-    header_template = _header_template(document_title, theme=theme, enabled=header)
+    margin = {
+        "top": "18mm" if include_header_footer else "0",
+        "bottom": "24mm" if include_header_footer else "0",
+        "left": "0",
+        "right": "0",
+    }
 
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(_to_file_url(html_path), wait_until="networkidle")
         page.emulate_media(media="print")
-        page.pdf(
-            path=str(output_pdf),
-            format="A4",
-            print_background=True,
-            display_header_footer=include_header_footer,
-            header_template=header_template if include_header_footer else "<span></span>",
-            footer_template=footer_template if include_header_footer else "<span></span>",
-            margin={
-                "top": "18mm" if include_header_footer else "0",
-                "bottom": "24mm" if include_header_footer else "0",
-                "left": "0",
-                "right": "0",
-            },
-        )
+
+        if include_header_footer and header:
+            marker_sources = _install_page_marker_probes(page)
+            with tempfile.TemporaryDirectory(
+                prefix="aesthepdf-pages-", dir=output_pdf.parent
+            ) as page_tmp:
+                page_tmp_dir = Path(page_tmp)
+                probe_pdf = page_tmp_dir / "probe.pdf"
+                page.pdf(
+                    path=str(probe_pdf),
+                    format="A4",
+                    print_background=True,
+                    display_header_footer=False,
+                    margin=margin,
+                )
+                page_texts, marker_positions, page_heights = _read_probe_pdf(
+                    probe_pdf, marker_sources
+                )
+                page_markers = _resolve_page_markers(
+                    page_texts,
+                    marker_sources,
+                    document_title,
+                    marker_positions,
+                    page_heights,
+                )
+                _remove_page_marker_probes(page)
+
+                parts: list[Path] = []
+                for page_number, page_marker in enumerate(page_markers, start=1):
+                    part = page_tmp_dir / f"page-{page_number:04d}.pdf"
+                    page.pdf(
+                        path=str(part),
+                        format="A4",
+                        print_background=True,
+                        display_header_footer=True,
+                        header_template=_header_template(
+                            page_marker, theme=theme, enabled=True
+                        ),
+                        footer_template=footer_template,
+                        margin=margin,
+                        page_ranges=str(page_number),
+                    )
+                    parts.append(part)
+                merge_pdfs(parts, output_pdf)
+        else:
+            page.pdf(
+                path=str(output_pdf),
+                format="A4",
+                print_background=True,
+                display_header_footer=include_header_footer,
+                header_template="<span></span>",
+                footer_template=(
+                    footer_template if include_header_footer else "<span></span>"
+                ),
+                margin=margin,
+            )
         browser.close()
 
 

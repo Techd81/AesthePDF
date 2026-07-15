@@ -4,6 +4,10 @@ Five document types with distinct layouts, components, and Pandoc capabilities �
 
 **Repository:** [github.com/Techd81/AesthePDF](https://github.com/Techd81/AesthePDF)
 
+<p align="center">
+  <img src="../../images/preview-grid.png" alt="五主题 PDF 预览拼图（3×5）" width="100%">
+</p>
+
 | ID | 名称 | 适用场景 | 结构特征 |
 |----|------|----------|----------|
 | `proposal` | 方案建议书 | 客户方案、建设蓝图、售前演示 | EAM 咨询风：英中 label 章节头、callout、tag |

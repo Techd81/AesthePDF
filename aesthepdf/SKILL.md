@@ -103,7 +103,7 @@ Requires **pandoc 3.x** on PATH. Verify: `python scripts/render.py --list-themes
 
 1. Ensure **`aesthepdf_output/`** exists at the workspace root.
 2. Set YAML: `theme`, `cover-title`, `document-title`, `lang: zh-CN`; add capability flags per [composition.md](composition.md) (e.g. `code-highlight: true`).
-3. Use **`## Title {.section-header label="…"}`** for every chapter.
+3. Use **`## Title {.section-header label="…"}`** for every chapter. The active chapter title becomes that page's right-aligned running header; override it with `page-header="Short label"` when needed.
 4. Pull component patterns from matching `templates/*-sample.md` and [examples.md](examples.md).
 5. Save as **`aesthepdf_output/{slug}.md`** only.
 

@@ -1,4 +1,4 @@
-"""Generate README preview collages from aesthepdf_output sample PDFs."""
+"""Generate README preview collage from aesthepdf_output sample PDFs."""
 
 from __future__ import annotations
 
@@ -10,27 +10,29 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "images"
 PDF_DIR = ROOT / "aesthepdf_output"
 
-THEMES = [
-    ("proposal", "方案建议书", 0, 2),
-    ("academic", "学术报告", 0, 2),
-    ("whitepaper", "白皮书", 0, 3),
-    ("brief", "执行简报", 0, 2),
-    ("manual", "产品手册", 0, 3),
+# 3 rows × 5 cols — one column per theme: cover + two inner pages
+THEMES: list[tuple[str, str, int, int, int]] = [
+    ("proposal", "方案建议书", 0, 2, 4),
+    ("academic", "学术报告", 0, 2, 5),
+    ("whitepaper", "白皮书", 0, 3, 5),
+    ("brief", "执行简报", 0, 2, 4),
+    ("manual", "产品手册", 0, 2, 3),
 ]
 
 MATRIX = fitz.Matrix(3.0, 3.0)
-GAP = 24
-PAD = 32
+GAP = 18
+PAD = 24
 BG = (245, 244, 240)
-LABEL_H = 52
-FONT_SIZE = 28
-ROW_TARGET_H = 1000
-OVERVIEW_COL_W = 520
-OVERVIEW_PAGE_H = 720
+CELL_W = 520
+CELL_H = 780
+LABEL_H = 38
+FONT_SIZE = 22
 
 
 def render_page(pdf_path: Path, page_idx: int) -> Image.Image:
     doc = fitz.open(pdf_path)
+    if page_idx >= len(doc):
+        raise ValueError(f"{pdf_path.name} has {len(doc)} pages, need index {page_idx}")
     page = doc[page_idx]
     pix = page.get_pixmap(matrix=MATRIX, alpha=False)
     img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
@@ -38,9 +40,14 @@ def render_page(pdf_path: Path, page_idx: int) -> Image.Image:
     return img
 
 
-def resize_to_height(img: Image.Image, height: int) -> Image.Image:
-    width = int(img.width * height / img.height)
-    return img.resize((width, height), Image.LANCZOS)
+def fit_to_cell(img: Image.Image, cell_w: int, cell_h: int) -> Image.Image:
+    scale = min(cell_w / img.width, cell_h / img.height)
+    new_w = int(img.width * scale)
+    new_h = int(img.height * scale)
+    resized = img.resize((new_w, new_h), Image.LANCZOS)
+    cell = Image.new("RGB", (cell_w, cell_h), BG)
+    cell.paste(resized, ((cell_w - new_w) // 2, (cell_h - new_h) // 2))
+    return cell
 
 
 def try_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -52,92 +59,44 @@ def try_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def make_row(
-    images: list[Image.Image],
-    labels: list[str],
-    target_h: int,
-    filename: str,
+def make_grid(
     font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    filename: str = "preview-grid.png",
 ) -> None:
-    resized = [resize_to_height(im, target_h) for im in images]
-    row_w = sum(im.width for im in resized) + GAP * (len(resized) - 1)
-    canvas_h = PAD * 2 + target_h + LABEL_H
-    canvas = Image.new("RGB", (row_w + PAD * 2, canvas_h), BG)
-    draw = ImageDraw.Draw(canvas)
-    x = PAD
-    for im, label in zip(resized, labels):
-        canvas.paste(im, (x, PAD))
-        bbox = draw.textbbox((0, 0), label, font=font)
-        tw = bbox[2] - bbox[0]
-        draw.text(
-            (x + (im.width - tw) // 2, PAD + target_h + 8),
-            label,
-            fill=(60, 60, 60),
-            font=font,
-        )
-        x += im.width + GAP
-    out_path = OUT / filename
-    canvas.save(out_path, format="PNG")
-    print(f"wrote {out_path} ({canvas.width}x{canvas.height})")
-
-
-def make_overview(
-    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
-) -> None:
-    pair_w = OVERVIEW_COL_W
-    pair_h_cover = OVERVIEW_PAGE_H
-    pair_h_content = OVERVIEW_PAGE_H
     cols = len(THEMES)
-    canvas_w = PAD * 2 + cols * pair_w + GAP * (cols - 1)
-    canvas_h = PAD * 2 + pair_h_cover + 8 + pair_h_content + LABEL_H
+    rows = 3
+
+    canvas_w = PAD * 2 + cols * CELL_W + GAP * (cols - 1)
+    canvas_h = PAD * 2 + rows * (CELL_H + LABEL_H) + GAP * (rows - 1)
     canvas = Image.new("RGB", (canvas_w, canvas_h), BG)
     draw = ImageDraw.Draw(canvas)
-    for i, (tid, name, cover_page, content_page) in enumerate(THEMES):
-        x = PAD + i * (pair_w + GAP)
-        cover = resize_to_height(
-            render_page(PDF_DIR / f"{tid}.pdf", cover_page), pair_h_cover
-        )
-        content = resize_to_height(
-            render_page(PDF_DIR / f"{tid}.pdf", content_page), pair_h_content
-        )
-        canvas.paste(cover, (x + (pair_w - cover.width) // 2, PAD))
-        canvas.paste(
-            content,
-            (x + (pair_w - content.width) // 2, PAD + pair_h_cover + 8),
-        )
-        bbox = draw.textbbox((0, 0), name, font=font)
-        tw = bbox[2] - bbox[0]
-        draw.text(
-            (
-                x + (pair_w - tw) // 2,
-                PAD + pair_h_cover + 8 + pair_h_content + 8,
-            ),
-            name,
-            fill=(60, 60, 60),
-            font=font,
-        )
-    out_path = OUT / "themes-overview.png"
+
+    for col_idx, (theme_id, label, cover_p, inner1_p, inner2_p) in enumerate(THEMES):
+        x = PAD + col_idx * (CELL_W + GAP)
+        pages = [cover_p, inner1_p, inner2_p]
+        for row_idx, page_idx in enumerate(pages):
+            y = PAD + row_idx * (CELL_H + LABEL_H + GAP)
+            img = render_page(PDF_DIR / f"{theme_id}.pdf", page_idx)
+            cell = fit_to_cell(img, CELL_W, CELL_H)
+            canvas.paste(cell, (x, y))
+            if row_idx == 0:
+                bbox = draw.textbbox((0, 0), label, font=font)
+                tw = bbox[2] - bbox[0]
+                draw.text(
+                    (x + (CELL_W - tw) // 2, y + CELL_H + 6),
+                    label,
+                    fill=(60, 60, 60),
+                    font=font,
+                )
+
+    out_path = OUT / filename
     canvas.save(out_path, format="PNG")
     print(f"wrote {out_path} ({canvas.width}x{canvas.height})")
 
 
 def main() -> None:
     OUT.mkdir(exist_ok=True)
-    font = try_font(FONT_SIZE)
-
-    covers, labels = [], []
-    for tid, name, cover_page, _ in THEMES:
-        covers.append(render_page(PDF_DIR / f"{tid}.pdf", cover_page))
-        labels.append(name)
-    make_row(covers, labels, ROW_TARGET_H, "covers.png", font)
-
-    contents, content_labels = [], []
-    for tid, name, _, content_page in THEMES:
-        contents.append(render_page(PDF_DIR / f"{tid}.pdf", content_page))
-        content_labels.append(name)
-    make_row(contents, content_labels, ROW_TARGET_H, "samples.png", font)
-
-    make_overview(font)
+    make_grid(try_font(FONT_SIZE))
 
 
 if __name__ == "__main__":
