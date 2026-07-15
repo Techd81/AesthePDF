@@ -1,5 +1,47 @@
 -- Whitepaper: lead, pullquote, stats, insight
 
+local function escape_html(text)
+  return text
+    :gsub("&", "&amp;")
+    :gsub("<", "&lt;")
+    :gsub(">", "&gt;")
+    :gsub('"', "&quot;")
+end
+
+local function record_lines(el)
+  local lines = {}
+
+  local function append(inlines)
+    local text = pandoc.utils.stringify(pandoc.Inlines(inlines))
+    text = text:gsub("^%s+", ""):gsub("%s+$", "")
+    if text ~= "" then
+      table.insert(lines, text)
+    end
+  end
+
+  for _, block in ipairs(el.content) do
+    if block.t == "Para" or block.t == "Plain" then
+      local current = pandoc.List()
+      for _, inline in ipairs(block.content) do
+        if inline.t == "SoftBreak" or inline.t == "LineBreak" then
+          append(current)
+          current = pandoc.List()
+        else
+          current:insert(inline)
+        end
+      end
+      append(current)
+    else
+      local text = pandoc.utils.stringify(block)
+      if text ~= "" then
+        table.insert(lines, text)
+      end
+    end
+  end
+
+  return lines
+end
+
 function Div(el)
   if el.classes:includes("lead") then
     return pandoc.RawBlock(
@@ -17,13 +59,12 @@ function Div(el)
 
   if el.classes:includes("stats") then
     local items = {}
-    for _, block in ipairs(el.content) do
-      local text = pandoc.utils.stringify(block)
+    for _, text in ipairs(record_lines(el)) do
       local value, label = text:match("^(.-)|(.+)$")
       if value and label then
         table.insert(
           items,
-          '<div class="stat-item"><div class="stat-value">' .. value .. '</div><div class="stat-label">' .. label .. "</div></div>"
+          '<div class="stat-item"><div class="stat-value">' .. escape_html(value) .. '</div><div class="stat-label">' .. escape_html(label) .. "</div></div>"
         )
       end
     end

@@ -10,14 +10,17 @@ import re
 import shutil
 import subprocess
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Any
 
 try:
     from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import NumberObject
 except ImportError:
     PdfReader = None
     PdfWriter = None
+    NumberObject = None
 
 try:
     from playwright.sync_api import sync_playwright
@@ -233,6 +236,30 @@ def _header_template(page_marker: str, *, theme: str | None, enabled: bool) -> s
     return f'<div style="{style}">{html.escape(page_marker)}</div>'
 
 
+def _footer_template(
+    document_title: str,
+    *,
+    footer_title: bool,
+    page_number: int | None = None,
+) -> str:
+    number_html = (
+        str(page_number)
+        if page_number is not None
+        else '<span class="pageNumber"></span>'
+    )
+    footer_inner = (
+        f"{number_html} · {html.escape(document_title)}"
+        if footer_title
+        else number_html
+    )
+    return (
+        '<div style="width:100%;font-size:9px;color:#6b6a64;text-align:center;'
+        'font-family:serif;padding-top:4mm;">'
+        f"{footer_inner}"
+        "</div>"
+    )
+
+
 def _install_page_marker_probes(page: Any) -> list[dict[str, Any]]:
     """Attach extractable, visually transparent tokens to running-header sources."""
     return page.evaluate(
@@ -424,18 +451,6 @@ def print_pdf(
     header: bool = True,
     theme: str | None = None,
 ) -> None:
-    safe_document_title = html.escape(document_title)
-    footer_inner = (
-        f'<span class="pageNumber"></span> · {safe_document_title}'
-        if footer_title
-        else '<span class="pageNumber"></span>'
-    )
-    footer_template = (
-        '<div style="width:100%;font-size:9px;color:#6b6a64;text-align:center;'
-        'font-family:serif;padding-top:4mm;">'
-        f"{footer_inner}"
-        "</div>"
-    )
     margin = {
         "top": "18mm" if include_header_footer else "0",
         "bottom": "24mm" if include_header_footer else "0",
@@ -475,35 +490,69 @@ def print_pdf(
                 )
                 _remove_page_marker_probes(page)
 
-                parts: list[Path] = []
+                base_pdf = page_tmp_dir / "base.pdf"
+                page.pdf(
+                    path=str(base_pdf),
+                    format="A4",
+                    print_background=True,
+                    display_header_footer=False,
+                    margin=margin,
+                )
+
+                base_page_count = len(PdfReader(str(base_pdf)).pages)
+                if base_page_count != len(page_markers):
+                    raise RuntimeError(
+                        "Pagination changed after resolving running headers: "
+                        f"probe={len(page_markers)}, body={base_page_count}"
+                    )
+
+                overlay_page = browser.new_page()
+                overlay_page.set_content(
+                    "<!doctype html><html><head><style>"
+                    "@page{size:A4;margin:0}html,body{margin:0;background:transparent}"
+                    "</style></head><body></body></html>",
+                    wait_until="load",
+                )
+                overlays: list[Path] = []
                 for page_number, page_marker in enumerate(page_markers, start=1):
-                    part = page_tmp_dir / f"page-{page_number:04d}.pdf"
-                    page.pdf(
-                        path=str(part),
+                    overlay = page_tmp_dir / f"overlay-{page_number:04d}.pdf"
+                    overlay_page.pdf(
+                        path=str(overlay),
                         format="A4",
-                        print_background=True,
+                        print_background=False,
                         display_header_footer=True,
                         header_template=_header_template(
                             page_marker, theme=theme, enabled=True
                         ),
-                        footer_template=footer_template,
+                        footer_template=_footer_template(
+                            document_title,
+                            footer_title=footer_title,
+                            page_number=page_number,
+                        ),
                         margin=margin,
-                        page_ranges=str(page_number),
                     )
-                    parts.append(part)
-                merge_pdfs(parts, output_pdf)
+                    overlays.append(overlay)
+                overlay_page.close()
+                merge_pdf_overlays(base_pdf, overlays, output_pdf)
         else:
-            page.pdf(
-                path=str(output_pdf),
-                format="A4",
-                print_background=True,
-                display_header_footer=include_header_footer,
-                header_template="<span></span>",
-                footer_template=(
-                    footer_template if include_header_footer else "<span></span>"
-                ),
-                margin=margin,
-            )
+            with tempfile.TemporaryDirectory(
+                prefix="aesthepdf-print-", dir=output_pdf.parent
+            ) as print_tmp:
+                raw_pdf = Path(print_tmp) / "raw.pdf"
+                page.pdf(
+                    path=str(raw_pdf),
+                    format="A4",
+                    print_background=True,
+                    display_header_footer=include_header_footer,
+                    header_template="<span></span>",
+                    footer_template=(
+                        _footer_template(document_title, footer_title=footer_title)
+                        if include_header_footer
+                        else "<span></span>"
+                    ),
+                    margin=margin,
+                )
+                normalize_pdf(raw_pdf, output_pdf)
         browser.close()
 
 
@@ -526,12 +575,281 @@ def split_cover_and_body(html_path: Path, cover_html: Path, body_html: Path) -> 
     return True
 
 
-def merge_pdfs(parts: list[Path], output_pdf: Path) -> None:
+_BFCHAR_BLOCK_RE = re.compile(
+    rb"(?P<count>\d+)\s+beginbfchar(?P<body>.*?)endbfchar",
+    re.DOTALL,
+)
+_BFCHAR_ENTRY_RE = re.compile(
+    rb"(?P<prefix><[0-9A-Fa-f]+>\s+)<(?P<target>[0-9A-Fa-f]+)>"
+)
+_BFRANGE_BLOCK_RE = re.compile(
+    rb"(?P<count>\d+)\s+beginbfrange(?P<body>.*?)endbfrange",
+    re.DOTALL,
+)
+_BFRANGE_LINE_RE = re.compile(
+    rb"^(?P<prefix>\s*<(?P<start>[0-9A-Fa-f]+)>\s+"
+    rb"<(?P<end>[0-9A-Fa-f]+)>\s+)(?P<targets>.*)$"
+)
+_HEX_TOKEN_RE = re.compile(rb"<(?P<target>[0-9A-Fa-f]+)>")
+# Canonical CJK radical mappings plus Chromium's private-use aliases for
+# punctuation and ordered-list markers in the bundled CFF fonts.
+_PDF_TEXT_TRANSLATION = str.maketrans(
+    {
+        "\u2ea6": "\u4e2c",
+        "\u2eb0": "\u7e9f",
+        "\u2ec5": "\u89c1",
+        "\u2ec6": "\u89d2",
+        "\u2ec8": "\u8ba0",
+        "\u2ec9": "\u8d1d",
+        "\u2ecb": "\u8f66",
+        "\u2ed0": "\u9485",
+        "\u2ed3": "\u957f",
+        "\u2ed4": "\u95e8",
+        "\u2ed9": "\u97e6",
+        "\u2eda": "\u9875",
+        "\u2edb": "\u98ce",
+        "\u2edc": "\u98de",
+        "\u2ee0": "\u9963",
+        "\u2ee2": "\u9a6c",
+        "\u2ee5": "\u9c7c",
+        "\u2ee6": "\u9e1f",
+        "\u2ee7": "\u5364",
+        "\u2ee8": "\u9ea6",
+        "\u2ee9": "\u9ec4",
+        "\u2eea": "\u9efe",
+        "\u2eeb": "\u6589",
+        "\u2eec": "\u9f50",
+        "\u2eed": "\u6b6f",
+        "\u2eee": "\u9f7f",
+        "\u2eef": "\u7adc",
+        "\u2ef0": "\u9f99",
+        "\u2ef2": "\u4e80",
+        "\u2ef3": "\u9f9f",
+        "\ue072": "1",
+        "\ue073": "2",
+        "\ue074": "3",
+        "\ue075": "4",
+        "\ue076": "5",
+        "\ue077": "6",
+        "\ue078": "7",
+        "\ue079": "8",
+        "\ue07a": "9",
+        "\ue088": "-",
+        "\ue089": "-",
+        "\ue092": ":",
+        "\ue094": ".",
+        "\ue09d": "+",
+        "\ue09f": "×",
+    }
+)
+
+
+def _normalize_unicode_hex(target: bytes) -> bytes:
+    if len(target) % 4 != 0:
+        return target
+    try:
+        text = bytes.fromhex(target.decode("ascii")).decode("utf-16-be")
+    except (UnicodeDecodeError, ValueError):
+        return target
+
+    normalized = unicodedata.normalize(
+        "NFKC", text.translate(_PDF_TEXT_TRANSLATION)
+    ).replace("\x01", " ")
+    if normalized == text:
+        return target
+    return normalized.encode("utf-16-be").hex().upper().encode("ascii")
+
+
+def _normalize_cmap_data(data: bytes) -> bytes:
+    """Normalize compatibility characters in PDF ToUnicode CMaps."""
+
+    def replace_bfchar_block(match: re.Match[bytes]) -> bytes:
+        body = _BFCHAR_ENTRY_RE.sub(
+            lambda entry: entry.group("prefix")
+            + b"<"
+            + _normalize_unicode_hex(entry.group("target"))
+            + b">",
+            match.group("body"),
+        )
+        return (
+            match.group("count")
+            + b" beginbfchar"
+            + body
+            + b"endbfchar"
+        )
+
+    def replace_bfrange_block(match: re.Match[bytes]) -> bytes:
+        lines: list[bytes] = []
+        for line in match.group("body").splitlines(keepends=True):
+            parsed = _BFRANGE_LINE_RE.match(line.rstrip(b"\r\n"))
+            if parsed is None:
+                lines.append(line)
+                continue
+
+            targets = parsed.group("targets")
+            is_array = targets.lstrip().startswith(b"[")
+            if is_array:
+                targets = _HEX_TOKEN_RE.sub(
+                    lambda token: b"<"
+                    + _normalize_unicode_hex(token.group("target"))
+                    + b">",
+                    targets,
+                )
+            else:
+                scalar = _HEX_TOKEN_RE.fullmatch(targets.strip())
+                if scalar is not None and len(scalar.group("target")) == 4:
+                    start = int(parsed.group("start"), 16)
+                    end = int(parsed.group("end"), 16)
+                    destination = int(scalar.group("target"), 16)
+                    if 0 <= end - start <= 512:
+                        original_targets = [
+                            f"{destination + offset:04X}".encode("ascii")
+                            for offset in range(end - start + 1)
+                        ]
+                        normalized_targets = [
+                            _normalize_unicode_hex(target)
+                            for target in original_targets
+                        ]
+                        if normalized_targets != original_targets:
+                            targets = (
+                                b"["
+                                + b" ".join(
+                                    b"<" + target + b">"
+                                    for target in normalized_targets
+                                )
+                                + b"]"
+                            )
+            newline = b"\r\n" if line.endswith(b"\r\n") else b"\n" if line.endswith(b"\n") else b""
+            lines.append(parsed.group("prefix") + targets + newline)
+
+        return (
+            match.group("count")
+            + b" beginbfrange"
+            + b"".join(lines)
+            + b"endbfrange"
+        )
+
+    normalized = _BFCHAR_BLOCK_RE.sub(replace_bfchar_block, data)
+    return _BFRANGE_BLOCK_RE.sub(replace_bfrange_block, normalized)
+
+
+def _normalize_pdf_unicode_mappings(writer: Any) -> None:
+    seen: set[tuple[int, int] | int] = set()
+    for page in writer.pages:
+        resources = page.get("/Resources")
+        if resources is None:
+            continue
+        resources = resources.get_object()
+        fonts = resources.get("/Font")
+        if fonts is None:
+            continue
+        fonts = fonts.get_object()
+        for font_ref in fonts.values():
+            font = font_ref.get_object()
+            to_unicode_ref = font.get("/ToUnicode")
+            if to_unicode_ref is None:
+                continue
+            stream = to_unicode_ref.get_object()
+            reference = getattr(stream, "indirect_reference", None)
+            key: tuple[int, int] | int = (
+                (reference.idnum, reference.generation)
+                if reference is not None
+                else id(stream)
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            data = stream.get_data()
+            normalized = _normalize_cmap_data(data)
+            if normalized != data:
+                stream.set_data(normalized)
+
+
+def _write_pdf(writer: Any, output_pdf: Path) -> None:
+    _normalize_pdf_unicode_mappings(writer)
+    with output_pdf.open("wb") as file:
+        writer.write(file)
+
+
+def normalize_pdf(input_pdf: Path, output_pdf: Path) -> None:
+    reader = PdfReader(str(input_pdf))
     writer = PdfWriter()
-    for part in parts:
-        writer.append(str(part))
-    with output_pdf.open("wb") as f:
-        writer.write(f)
+    writer.clone_document_from_reader(reader)
+    _write_pdf(writer, output_pdf)
+
+
+def merge_pdf_overlays(
+    base_pdf: Path, overlays: list[Path], output_pdf: Path
+) -> None:
+    reader = PdfReader(str(base_pdf))
+    if len(reader.pages) != len(overlays):
+        raise RuntimeError(
+            f"Overlay count mismatch: pages={len(reader.pages)}, overlays={len(overlays)}"
+        )
+
+    writer = PdfWriter()
+    writer.clone_document_from_reader(reader)
+    for page, overlay_path in zip(writer.pages, overlays, strict=True):
+        overlay_reader = PdfReader(str(overlay_path))
+        if len(overlay_reader.pages) != 1:
+            raise RuntimeError(f"Expected one-page overlay: {overlay_path}")
+        overlay_page = overlay_reader.pages[0]
+        if "/Annots" in overlay_page:
+            del overlay_page["/Annots"]
+        page.merge_page(overlay_page, over=True)
+    _write_pdf(writer, output_pdf)
+
+
+def merge_pdfs(parts: list[Path], output_pdf: Path) -> None:
+    if not parts:
+        raise ValueError("At least one PDF is required")
+
+    body_reader = PdfReader(str(parts[-1]))
+    writer = PdfWriter()
+    writer.clone_document_from_reader(body_reader)
+    prefix_page_count = 0
+    for part in reversed(parts[:-1]):
+        prefix_reader = PdfReader(str(part))
+        prefix_page_count += len(prefix_reader.pages)
+        for page in reversed(prefix_reader.pages):
+            writer.insert_page(page, index=0)
+    if prefix_page_count:
+        _shift_numeric_link_destinations(writer, prefix_page_count)
+    _write_pdf(writer, output_pdf)
+
+
+def _shift_numeric_link_destinations(writer: Any, offset: int) -> None:
+    """Shift page-index link destinations after prefix pages are inserted."""
+    for page in writer.pages[offset:]:
+        for annotation_ref in page.get("/Annots") or []:
+            annotation = annotation_ref.get_object()
+            if annotation.get("/Subtype") != "/Link":
+                continue
+            destination = annotation.get("/Dest")
+            if destination is None:
+                action = annotation.get("/A")
+                if action is not None:
+                    action = action.get_object()
+                    if action.get("/S") == "/GoTo":
+                        destination = action.get("/D")
+            if (
+                destination is not None
+                and len(destination) > 0
+                and isinstance(destination[0], NumberObject)
+            ):
+                destination[0] = NumberObject(int(destination[0]) + offset)
+
+
+def _validate_io_paths(input_md: Path, output_pdf: Path) -> tuple[Path, Path]:
+    input_md = input_md.resolve()
+    output_pdf = output_pdf.resolve()
+    if not input_md.is_file():
+        raise SystemExit(f"Input Markdown not found: {input_md}")
+    if output_pdf.suffix.lower() != ".pdf":
+        raise SystemExit(f"Output path must end in .pdf: {output_pdf}")
+    if input_md == output_pdf:
+        raise SystemExit("Input Markdown and output PDF must use different paths")
+    return input_md, output_pdf
 
 
 def render(
@@ -543,8 +861,7 @@ def render(
     document_title: str | None = None,
 ) -> Path:
     _require_tools()
-    input_md = input_md.resolve()
-    output_pdf = output_pdf.resolve()
+    input_md, output_pdf = _validate_io_paths(input_md, output_pdf)
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
 
     theme_config = load_theme_config(theme)
@@ -625,12 +942,20 @@ def main() -> None:
     if args.input is None:
         parser.error("input markdown file is required unless --list-themes is used")
 
+    if not args.input.is_file():
+        parser.error(f"input markdown file not found: {args.input}")
+
+    output = args.output or args.input.with_suffix(".pdf")
+    try:
+        _validate_io_paths(args.input, output)
+    except SystemExit as exc:
+        parser.error(str(exc))
+
     theme = args.theme or read_theme(args.input) or DEFAULT_THEME
     theme_config = load_theme_config(theme)
     default_toc = theme_config.get("defaults", {}).get("toc", True)
     use_toc = False if args.no_toc else default_toc
 
-    output = args.output or args.input.with_suffix(".pdf")
     pdf = render(args.input, output, theme=theme, toc=use_toc, document_title=args.title)
     print(f"Wrote {pdf} (theme: {theme})")
 

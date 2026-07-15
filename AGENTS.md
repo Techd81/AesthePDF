@@ -23,7 +23,7 @@ Follow the existing Python style: four-space indentation, type hints, `snake_cas
 
 ## Testing Guidelines
 
-No automated test suite or coverage threshold exists yet. Validate renderer changes by rendering the affected sample template and opening the PDF to inspect the cover, table of contents, headers/footers, fonts, code, and theme components. Changes to shared assets or `render.py` should smoke-test all five templates. Keep generated PDFs under `aesthepdf_output/`.
+Run `python -m unittest discover -s tests -v` for component parsing, PDF link preservation, Unicode mapping, and CLI path validation. Also validate renderer changes by rendering the affected sample template and opening the PDF to inspect the cover, table of contents, headers/footers, fonts, code, and theme components. Changes to shared assets or `render.py` should smoke-test all five templates. Keep generated PDFs under `aesthepdf_output/` or the temporary PDF QA directory.
 
 ## Commit & Pull Request Guidelines
 

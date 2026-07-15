@@ -73,6 +73,9 @@ python -m playwright install chromium
 
 # 验证
 python aesthepdf/scripts/render.py --list-themes
+
+# 回归测试
+python -m unittest discover -s tests -v
 ```
 
 ### 命令行渲染
