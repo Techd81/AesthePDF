@@ -123,11 +123,29 @@ body {
 }
 
 #TOC a {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4mm;
   flex: 1 1 auto;
   min-width: 0;
   color: inherit;
   text-decoration: none;
+}
+
+#TOC a .toc-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+
+#TOC a .toc-page-num {
+  flex: 0 0 auto;
+  min-width: 2ch;
+  color: var(--text-muted);
+  font-size: 10pt;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .document-body {

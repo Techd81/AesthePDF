@@ -82,6 +82,107 @@ theme: whitepaper
 
 
 class PdfPostProcessingTests(unittest.TestCase):
+    def test_section_start_pages_maps_anchor_ids(self) -> None:
+        marker_sources = [
+            {
+                "token": "AESTHEPDFMARKER0000",
+                "text": "目录",
+                "carry": False,
+                "anchor_id": "",
+            },
+            {
+                "token": "AESTHEPDFMARKER0001",
+                "text": "执行摘要",
+                "carry": True,
+                "anchor_id": "执行摘要",
+            },
+            {
+                "token": "AESTHEPDFMARKER0002",
+                "text": "建设蓝图",
+                "carry": True,
+                "anchor_id": "建设蓝图",
+            },
+        ]
+        page_texts = [
+            "目录 AESTHEPDFMARKER0000",
+            "正文开头",
+            "执行摘要 AESTHEPDFMARKER0001 内容",
+            "建设蓝图 AESTHEPDFMARKER0002 内容",
+        ]
+        self.assertEqual(
+            render._section_start_pages(page_texts, marker_sources),
+            {"执行摘要": 3, "建设蓝图": 4},
+        )
+
+    def test_content_page_offset_skips_toc_front_matter(self) -> None:
+        marker_sources = [
+            {
+                "token": "AESTHEPDFMARKER0000",
+                "text": "目录",
+                "carry": False,
+                "anchor_id": "",
+            },
+            {
+                "token": "AESTHEPDFMARKER0001",
+                "text": "执行摘要",
+                "carry": True,
+                "anchor_id": "执行摘要",
+            },
+        ]
+        page_markers = ["目录", "执行摘要", "执行摘要"]
+        offset = render._content_page_offset(page_markers, marker_sources)
+        self.assertEqual(offset, 1)
+        self.assertEqual(
+            render._displayed_page_numbers({"执行摘要": 2, "蓝图": 4}, offset),
+            {"执行摘要": 1, "蓝图": 3},
+        )
+
+    def test_content_page_offset_skips_abstract_before_chapter(self) -> None:
+        marker_sources = [
+            {
+                "token": "AESTHEPDFMARKER0000",
+                "text": "目录",
+                "carry": False,
+                "anchor_id": "",
+            },
+            {
+                "token": "AESTHEPDFMARKER0001",
+                "text": "摘要",
+                "carry": True,
+                "anchor_id": "",
+            },
+            {
+                "token": "AESTHEPDFMARKER0002",
+                "text": "引言",
+                "carry": True,
+                "anchor_id": "引言",
+            },
+            {
+                "token": "AESTHEPDFMARKER0003",
+                "text": "相关工作",
+                "carry": True,
+                "anchor_id": "相关工作",
+            },
+        ]
+        page_markers = ["目录", "摘要", "引言", "相关工作"]
+        self.assertEqual(
+            render._content_page_offset(page_markers, marker_sources),
+            2,
+        )
+        self.assertEqual(
+            render._toc_display_pages(
+                page_markers,
+                ["目录", "摘要", "引言", "相关工作"],
+                [
+                    {"token": "T0", "anchor_id": "引言"},
+                    {"token": "T1", "anchor_id": "相关工作"},
+                ],
+                marker_sources,
+                2,
+            ),
+            {"引言": 1, "相关工作": 2},
+        )
+
     def test_cmap_normalization_repairs_radicals_and_control_separators(self) -> None:
         cmap = b"""5 beginbfchar
 <01> <2F2F>

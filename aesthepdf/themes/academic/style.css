@@ -125,6 +125,14 @@
   margin: 10mm 0 5mm;
   break-inside: avoid;
   page-break-inside: avoid;
+  break-before: page;
+  page-break-before: always;
+}
+
+/* TOC already breaks; keep first chapter on the page after the TOC */
+.document-body > h2.academic-toc-source:first-child + .academic-section {
+  break-before: auto;
+  page-break-before: auto;
 }
 
 .academic-number {

@@ -185,6 +185,7 @@ python scripts/render.py aesthepdf_output/doc.md -o aesthepdf_output/doc.pdf --t
 | Issue | Fix |
 |-------|-----|
 | Empty TOC | Chapters must use `## … {.section-header}` |
+| TOC missing page numbers | Re-render with current `render.py`; page nums are filled from a pagination probe |
 | `pandoc not found` | Install pandoc 3.x |
 | Playwright errors | `pip install -r scripts/requirements.txt` && `python -m playwright install chromium` |
 | Fonts wrong | Files must stay in `fonts/` (bundled with skill) |

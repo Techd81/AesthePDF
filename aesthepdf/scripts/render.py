@@ -240,18 +240,24 @@ def _footer_template(
     document_title: str,
     *,
     footer_title: bool,
-    page_number: int | None = None,
+    page_number: int | str | None = None,
 ) -> str:
-    number_html = (
-        str(page_number)
-        if page_number is not None
-        else '<span class="pageNumber"></span>'
-    )
-    footer_inner = (
-        f"{number_html} · {html.escape(document_title)}"
-        if footer_title
-        else number_html
-    )
+    if page_number is None:
+        number_html = '<span class="pageNumber"></span>'
+        has_number = True
+    elif page_number == "":
+        number_html = ""
+        has_number = False
+    else:
+        number_html = str(page_number)
+        has_number = True
+
+    if footer_title and has_number:
+        footer_inner = f"{number_html} · {html.escape(document_title)}"
+    elif footer_title:
+        footer_inner = html.escape(document_title)
+    else:
+        footer_inner = number_html
     return (
         '<div style="width:100%;font-size:9px;color:#6b6a64;text-align:center;'
         'font-family:serif;padding-top:4mm;">'
@@ -260,18 +266,225 @@ def _footer_template(
     )
 
 
+def _prepare_toc_page_number_slots(page: Any) -> None:
+    """Reserve TOC page-number slots before pagination so layout stays stable."""
+    page.evaluate(
+        """() => {
+          document.querySelectorAll('#TOC > ul > li > a[href^="#"]').forEach((link) => {
+            if (link.querySelector('.toc-page-num')) return;
+            const title = document.createElement('span');
+            title.className = 'toc-title';
+            while (link.firstChild) {
+              title.appendChild(link.firstChild);
+            }
+            const num = document.createElement('span');
+            num.className = 'toc-page-num';
+            num.textContent = '00';
+            link.append(title, num);
+          });
+        }"""
+    )
+
+
+def _install_toc_page_probes(page: Any) -> list[dict[str, Any]]:
+    """Attach probes to every top-level TOC link target for page-number resolution."""
+    return page.evaluate(
+        """() => {
+          const decodeHref = (href) => {
+            const raw = href.slice(1);
+            try {
+              return decodeURIComponent(raw);
+            } catch {
+              return raw;
+            }
+          };
+
+          return [...document.querySelectorAll('#TOC > ul > li > a[href^="#"]')]
+            .map((link, index) => {
+              const anchorId = decodeHref(link.getAttribute('href') || '');
+              if (!anchorId) return null;
+              const source = document.getElementById(anchorId);
+              if (!source) return null;
+
+              let target = source;
+              const isClippedTocSource = target.matches([
+                '.academic-toc-source',
+                '.manual-toc-source',
+                '.wp-toc-source',
+                '.brief-toc-source',
+              ].join(','));
+              if (getComputedStyle(target).display === 'none' || isClippedTocSource) {
+                let sibling = target.nextElementSibling;
+                while (sibling && getComputedStyle(sibling).display === 'none') {
+                  sibling = sibling.nextElementSibling;
+                }
+                target = sibling || target.parentElement;
+              }
+              if (!target) return null;
+
+              const token = `AESTHEPDFTOCPAGE${String(index).padStart(4, '0')}`;
+              const probe = document.createElement('span');
+              probe.className = 'aesthepdf-page-marker-probe';
+              probe.textContent = token;
+              probe.style.cssText = [
+                'position:absolute',
+                'top:0',
+                'left:0',
+                'font:1px Arial,sans-serif',
+                'line-height:1',
+                'color:rgba(0,0,0,0.01)',
+                'white-space:nowrap',
+              ].join(';');
+              if (getComputedStyle(target).position === 'static') {
+                if (!Object.hasOwn(target.dataset, 'aesthepdfProbePosition')) {
+                  target.dataset.aesthepdfProbePosition = target.style.position;
+                }
+                target.style.position = 'relative';
+              }
+              target.appendChild(probe);
+              return { token, anchor_id: anchorId };
+            })
+            .filter(Boolean);
+        }"""
+    )
+
+
+def _fill_toc_page_numbers(page: Any, section_pages: dict[str, int]) -> None:
+    """Write resolved body page numbers into prepared TOC slots."""
+    page.evaluate(
+        """(sectionPages) => {
+          document.querySelectorAll('#TOC > ul > li > a[href^="#"]').forEach((link) => {
+            const raw = link.getAttribute('href').slice(1);
+            let id;
+            try {
+              id = decodeURIComponent(raw);
+            } catch {
+              id = raw;
+            }
+            const pageNumber = sectionPages[id];
+            const num = link.querySelector('.toc-page-num');
+            if (pageNumber == null || !num) return;
+            num.textContent = String(pageNumber).padStart(2, '0');
+          });
+        }""",
+        section_pages,
+    )
+
+
+def _section_start_pages(
+    page_texts: list[str],
+    marker_sources: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Map heading anchor ids to 1-based body page numbers."""
+    compact_pages = [re.sub(r"\s+", "", text) for text in page_texts]
+    pages: dict[str, int] = {}
+    for source in marker_sources:
+        anchor_id = source.get("anchor_id")
+        if not anchor_id:
+            continue
+        token = source["token"]
+        for page_index, page_text in enumerate(compact_pages):
+            if token in page_text:
+                pages[anchor_id] = page_index + 1
+                break
+    return pages
+
+
+def _content_page_offset(
+    page_markers: list[str],
+    marker_sources: list[dict[str, Any]],
+) -> int:
+    """0-based index of the first chapter page (after TOC / abstract front matter)."""
+    front_matter_titles = {
+        source["text"]
+        for source in marker_sources
+        if not source.get("carry", True) or not source.get("anchor_id")
+    }
+    chapter_titles = {
+        source["text"]
+        for source in marker_sources
+        if source.get("carry", True) and source.get("anchor_id")
+    }
+    for page_index, marker in enumerate(page_markers):
+        if marker in chapter_titles and marker not in front_matter_titles:
+            return page_index
+    for page_index, marker in enumerate(page_markers):
+        if marker not in front_matter_titles:
+            return page_index
+    return 0
+
+
+def _toc_display_pages(
+    page_markers: list[str],
+    page_texts: list[str],
+    toc_probes: list[dict[str, Any]],
+    marker_sources: list[dict[str, Any]],
+    content_offset: int,
+) -> dict[str, int]:
+    """Map TOC anchor ids to content-relative page numbers."""
+    title_by_anchor = {
+        source["anchor_id"]: source["text"]
+        for source in marker_sources
+        if source.get("anchor_id")
+    }
+    pages: dict[str, int] = {}
+    for probe in toc_probes:
+        anchor_id = probe.get("anchor_id")
+        if not anchor_id:
+            continue
+        title = title_by_anchor.get(anchor_id)
+        if title:
+            for page_index, marker in enumerate(page_markers):
+                if page_index < content_offset:
+                    continue
+                if marker == title:
+                    pages[anchor_id] = page_index - content_offset + 1
+                    break
+        if anchor_id in pages:
+            continue
+        physical = _section_start_pages(page_texts, [probe]).get(anchor_id)
+        if physical is not None and physical > content_offset:
+            pages[anchor_id] = physical - content_offset
+    return pages
+
+
+def _displayed_page_numbers(
+    physical_pages: dict[str, int],
+    content_offset: int,
+) -> dict[str, int]:
+    """Convert 1-based physical body pages to content-relative numbers."""
+    return {
+        anchor_id: physical - content_offset
+        for anchor_id, physical in physical_pages.items()
+        if physical > content_offset
+    }
+
+
 def _install_page_marker_probes(page: Any) -> list[dict[str, Any]]:
     """Attach extractable, visually transparent tokens to running-header sources."""
     return page.evaluate(
         """() => {
           const entries = [...document.querySelectorAll('.document-body h2.section-header')]
-            .map((source) => ({
-              source,
-              text: source.getAttribute('page-header')
-                || source.getAttribute('data-page-header')
-                || source.textContent.trim(),
-              carry: true,
-            }));
+            .map((source) => {
+              const probeText = [...source.childNodes]
+                .filter((node) => {
+                  return !(
+                    node.nodeType === Node.ELEMENT_NODE
+                    && node.classList?.contains('aesthepdf-page-marker-probe')
+                  );
+                })
+                .map((node) => node.textContent || '')
+                .join('')
+                .trim();
+              return {
+                source,
+                text: source.getAttribute('page-header')
+                  || source.getAttribute('data-page-header')
+                  || probeText
+                  || source.textContent.trim(),
+                carry: true,
+              };
+            });
 
           const abstractTitle = document.querySelector('.document-body .abstract-title');
           if (abstractTitle) {
@@ -332,7 +545,12 @@ def _install_page_marker_probes(page: Any) -> list[dict[str, Any]]:
               target.style.position = 'relative';
             }
             target.appendChild(probe);
-            return { token, text: entry.text, carry: entry.carry };
+            return {
+              token,
+              text: entry.text,
+              carry: entry.carry,
+              anchor_id: entry.source.id || '',
+            };
           });
         }"""
     )
@@ -465,7 +683,13 @@ def print_pdf(
         page.emulate_media(media="print")
 
         if include_header_footer and header:
+            toc_present = page.query_selector("#TOC") is not None
             marker_sources = _install_page_marker_probes(page)
+            toc_probes: list[dict[str, Any]] = []
+            if toc_present:
+                # Install after header markers so section titles stay clean.
+                _prepare_toc_page_number_slots(page)
+                toc_probes = _install_toc_page_probes(page)
             with tempfile.TemporaryDirectory(
                 prefix="aesthepdf-pages-", dir=output_pdf.parent
             ) as page_tmp:
@@ -479,7 +703,7 @@ def print_pdf(
                     margin=margin,
                 )
                 page_texts, marker_positions, page_heights = _read_probe_pdf(
-                    probe_pdf, marker_sources
+                    probe_pdf, marker_sources + toc_probes
                 )
                 page_markers = _resolve_page_markers(
                     page_texts,
@@ -488,6 +712,18 @@ def print_pdf(
                     marker_positions,
                     page_heights,
                 )
+                content_offset = _content_page_offset(page_markers, marker_sources)
+                if toc_present:
+                    _fill_toc_page_numbers(
+                        page,
+                        _toc_display_pages(
+                            page_markers,
+                            page_texts,
+                            toc_probes,
+                            marker_sources,
+                            content_offset,
+                        ),
+                    )
                 _remove_page_marker_probes(page)
 
                 base_pdf = page_tmp_dir / "base.pdf"
@@ -514,8 +750,12 @@ def print_pdf(
                     wait_until="load",
                 )
                 overlays: list[Path] = []
-                for page_number, page_marker in enumerate(page_markers, start=1):
-                    overlay = page_tmp_dir / f"overlay-{page_number:04d}.pdf"
+                for page_index, page_marker in enumerate(page_markers):
+                    overlay = page_tmp_dir / f"overlay-{page_index + 1:04d}.pdf"
+                    if page_index < content_offset:
+                        display_page: int | str = ""
+                    else:
+                        display_page = page_index - content_offset + 1
                     overlay_page.pdf(
                         path=str(overlay),
                         format="A4",
@@ -527,7 +767,7 @@ def print_pdf(
                         footer_template=_footer_template(
                             document_title,
                             footer_title=footer_title,
-                            page_number=page_number,
+                            page_number=display_page,
                         ),
                         margin=margin,
                     )

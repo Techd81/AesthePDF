@@ -105,6 +105,14 @@ h2.section-header {
   break-inside: avoid;
   page-break-inside: avoid;
   page-break-after: avoid;
+  break-before: page;
+  page-break-before: always;
+}
+
+/* TOC already breaks; avoid a blank page before the first chapter */
+.document-body > h2.section-header:first-child {
+  break-before: auto;
+  page-break-before: auto;
 }
 
 h2.section-header::before {

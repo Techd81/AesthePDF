@@ -56,7 +56,7 @@ Rendered from YAML: `cover-title`, `title-en`, `subtitle`, `doc-platform`, `doc-
 
 Pandoc `--toc` inside `.toc-page`. Styled via `#TOC` rules in CSS.
 
-TOC page numbers use CSS `target-counter()`; if missing in output, content structure is still correct — re-render after content changes.
+TOC page numbers are resolved during Chromium print: a pagination probe maps each `#TOC` link target to its page, then the renderer fills right-aligned `.toc-page-num` slots (zero-padded). **Page 1 is the first chapter heading after front matter** (cover, TOC, and abstract do not consume Arabic page numbers). Directory entries and footers share this content-relative sequence.
 
 ### Section header
 

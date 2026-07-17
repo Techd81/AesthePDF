@@ -135,6 +135,14 @@ body.theme-manual {
   margin: 8mm 0 5mm;
   break-inside: avoid;
   page-break-inside: avoid;
+  break-before: page;
+  page-break-before: always;
+}
+
+/* TOC already breaks; avoid a blank page before the first chapter */
+.document-body > h2.manual-toc-source:first-child + .manual-section {
+  break-before: auto;
+  page-break-before: auto;
 }
 
 .manual-chapter {
