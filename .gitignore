@@ -67,3 +67,7 @@ test-results/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+/.agents
+/.pi
+/.trellis
+AGENTS.md
