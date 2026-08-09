@@ -710,12 +710,14 @@ _LAUNCH_ARGS = [
 # header/footer rendering.
 _OVERLAY_CSS = (
     "@page{size:A4;margin:0}html,body{margin:0;padding:0;background:transparent}"
-    ".op{width:210mm;height:297mm;box-sizing:border-box;display:flex;"
+    ".op{width:210mm;height:296mm;box-sizing:border-box;display:flex;"
     "flex-direction:column;break-after:page;page-break-after:always;overflow:hidden}"
     ".op:last-child{break-after:auto;page-break-after:auto}"
-    ".op-header{height:18mm;flex:0 0 auto;display:flex;align-items:center}"
+    ".op-header{height:18mm;flex:0 0 auto;display:flex;align-items:center;"
+    "overflow:hidden;white-space:nowrap;text-overflow:ellipsis}"
     ".op-spacer{flex:1 1 auto}"
-    ".op-footer{height:24mm;flex:0 0 auto;display:flex;align-items:center}"
+    ".op-footer{height:24mm;flex:0 0 auto;display:flex;align-items:center;"
+    "overflow:hidden;white-space:nowrap;text-overflow:ellipsis}"
 )
 
 
@@ -1223,6 +1225,29 @@ def merge_pdf_overlays(
     _write_pdf(writer, output_pdf)
 
 
+def _isolate_base_contents(page: Any, pdf: Any) -> None:
+    """Wrap the base content stream in q/Q so leftover graphics state does not
+    leak into the overlay commands appended afterwards.
+
+    Chromium leaves the page-level cm transform active at the end of each
+    page stream (it is not wrapped in q/Q), so a raw append would render the
+    overlay with a double scale/translate. Wrapping the base stream restores
+    the identity state before the overlay draws.
+    """
+    contents = page.get("/Contents")
+    if contents is None:
+        return
+    streams = contents if isinstance(contents, pikepdf.Array) else [contents]
+    isolated = pikepdf.Array()
+    for stream in streams:
+        stream = stream.get_object() if hasattr(stream, "get_object") else stream
+        data = stream.read_bytes()
+        new_stream = pdf.make_stream(b"q\n" + data + b"\nQ\n")
+        pdf.make_indirect(new_stream)
+        isolated.append(new_stream)
+    page["/Contents"] = isolated
+
+
 def _merge_overlay_page(
     base_page: Any, overlay_page: Any, base_pdf: Any, overlay_pdf: Any
 ) -> None:
@@ -1287,6 +1312,7 @@ def merge_overlay_pages(
         for done, (base_page, overlay_page) in enumerate(
             zip(base.pages, overlay.pages, strict=True), start=1
         ):
+            _isolate_base_contents(base_page, base)
             _merge_overlay_page(base_page, overlay_page, base, overlay)
             if page_progress is not None:
                 page_progress(done, total)
