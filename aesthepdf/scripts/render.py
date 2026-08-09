@@ -9,10 +9,12 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import threading
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 try:
     from pypdf import PdfReader, PdfWriter
@@ -21,6 +23,16 @@ except ImportError:
     PdfReader = None
     PdfWriter = None
     NumberObject = None
+
+try:
+    import pikepdf
+except ImportError:
+    pikepdf = None
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
 
 try:
     from playwright.sync_api import sync_playwright
@@ -49,6 +61,8 @@ def _require_tools() -> None:
         raise SystemExit("pandoc not found. Install from https://pandoc.org/")
     if sync_playwright is None:
         raise SystemExit("playwright not installed. Run: pip install -r scripts/requirements.txt")
+    if pikepdf is None:
+        raise SystemExit("pikepdf not installed. Run: pip install -r scripts/requirements.txt")
     if PdfWriter is None:
         raise SystemExit("pypdf not installed. Run: pip install -r scripts/requirements.txt")
 
@@ -374,9 +388,11 @@ def _fill_toc_page_numbers(page: Any, section_pages: dict[str, int]) -> None:
 def _section_start_pages(
     page_texts: list[str],
     marker_sources: list[dict[str, Any]],
+    compact_pages: list[str] | None = None,
 ) -> dict[str, int]:
     """Map heading anchor ids to 1-based body page numbers."""
-    compact_pages = [re.sub(r"\s+", "", text) for text in page_texts]
+    if compact_pages is None:
+        compact_pages = [re.sub(r"\s+", "", text) for text in page_texts]
     pages: dict[str, int] = {}
     for source in marker_sources:
         anchor_id = source.get("anchor_id")
@@ -427,6 +443,7 @@ def _toc_display_pages(
         for source in marker_sources
         if source.get("anchor_id")
     }
+    compact_pages = [re.sub(r"\s+", "", text) for text in page_texts]
     pages: dict[str, int] = {}
     for probe in toc_probes:
         anchor_id = probe.get("anchor_id")
@@ -442,7 +459,7 @@ def _toc_display_pages(
                     break
         if anchor_id in pages:
             continue
-        physical = _section_start_pages(page_texts, [probe]).get(anchor_id)
+        physical = _section_start_pages(page_texts, [probe], compact_pages).get(anchor_id)
         if physical is not None and physical > content_offset:
             pages[anchor_id] = physical - content_offset
     return pages
@@ -580,20 +597,34 @@ def _resolve_page_markers(
 ) -> list[str]:
     """Resolve the section active at the top of each PDF page."""
     starts: dict[int, list[tuple[int, str, str, bool]]] = {}
-    compact_pages = [re.sub(r"\s+", "", text) for text in page_texts]
-    for source_index, source in enumerate(marker_sources):
-        for page_index, page_text in enumerate(compact_pages):
-            marker_offset = page_text.find(source["token"])
-            if marker_offset != -1:
-                starts.setdefault(page_index, []).append(
-                    (
-                        source_index,
-                        source["token"],
-                        source["text"],
-                        source.get("carry", True),
+    compact_pages: list[str] | None = None
+    if marker_positions:
+        for page_index, positions in enumerate(marker_positions):
+            for source_index, source in enumerate(marker_sources):
+                if source["token"] in positions:
+                    starts.setdefault(page_index, []).append(
+                        (
+                            source_index,
+                            source["token"],
+                            source["text"],
+                            source.get("carry", True),
+                        )
                     )
-                )
-                break
+    else:
+        compact_pages = [re.sub(r"\s+", "", text) for text in page_texts]
+        for source_index, source in enumerate(marker_sources):
+            for page_index, page_text in enumerate(compact_pages):
+                marker_offset = page_text.find(source["token"])
+                if marker_offset != -1:
+                    starts.setdefault(page_index, []).append(
+                        (
+                            source_index,
+                            source["token"],
+                            source["text"],
+                            source.get("carry", True),
+                        )
+                    )
+                    break
 
     current = document_title
     resolved: list[str] = []
@@ -606,7 +637,7 @@ def _resolve_page_markers(
                 marker_y = marker_positions[page_index].get(first_token)
                 if marker_y is not None:
                     begins_with_section = marker_y >= page_heights[page_index] * 0.70
-            else:
+            elif compact_pages is not None:
                 begins_with_section = compact_pages[page_index].find(first_token) <= 120
 
         if page_starts and begins_with_section:
@@ -624,7 +655,9 @@ def _resolve_page_markers(
 
 
 def _read_probe_pdf(
-    probe_pdf: Path, marker_sources: list[dict[str, Any]]
+    probe_pdf: Path,
+    marker_sources: list[dict[str, Any]],
+    page_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[list[str], list[dict[str, float]], list[float]]:
     """Extract marker locations from the pagination probe."""
     reader = PdfReader(str(probe_pdf))
@@ -632,8 +665,9 @@ def _read_probe_pdf(
     page_texts: list[str] = []
     marker_positions: list[dict[str, float]] = []
     page_heights: list[float] = []
+    page_count = len(reader.pages)
 
-    for pdf_page in reader.pages:
+    for page_index, pdf_page in enumerate(reader.pages):
         positions: dict[str, float] = {}
 
         def visit_text(
@@ -655,8 +689,74 @@ def _read_probe_pdf(
         page_texts.append(pdf_page.extract_text(visitor_text=visit_text) or "")
         marker_positions.append(positions)
         page_heights.append(float(pdf_page.mediabox.height))
+        if page_progress is not None:
+            page_progress(page_index + 1, page_count)
 
     return page_texts, marker_positions, page_heights
+
+
+_LAUNCH_ARGS = [
+    "--disable-gpu",
+    "--disable-dev-shm-usage",
+    "--disable-extensions",
+    "--no-first-run",
+    "--disable-background-networking",
+]
+
+
+# A4 = 210mm x 297mm. The header/footer blocks live exactly in the same
+# top/bottom margin bands that the base body PDF reserves (18mm / 24mm), so
+# the single-shot multi-page overlay lines up with Chromium's own margin
+# header/footer rendering.
+_OVERLAY_CSS = (
+    "@page{size:A4;margin:0}html,body{margin:0;padding:0;background:transparent}"
+    ".op{width:210mm;height:297mm;box-sizing:border-box;display:flex;"
+    "flex-direction:column;break-after:page;page-break-after:always;overflow:hidden}"
+    ".op:last-child{break-after:auto;page-break-after:auto}"
+    ".op-header{height:18mm;flex:0 0 auto;display:flex;align-items:center}"
+    ".op-spacer{flex:1 1 auto}"
+    ".op-footer{height:24mm;flex:0 0 auto;display:flex;align-items:center}"
+)
+
+
+def _wait_fonts(page: Any) -> None:
+    """Ensure @font-face files are loaded before printing."""
+    page.evaluate("document.fonts ? document.fonts.ready.then(() => true) : true")
+
+
+def _build_overlay_html(
+    page_markers: list[str],
+    content_offset: int,
+    document_title: str,
+    *,
+    footer_title: bool,
+    theme: str | None,
+) -> str:
+    """Render the full running-header/footer overlay as one multi-page HTML."""
+    sections: list[str] = []
+    for page_index, page_marker in enumerate(page_markers):
+        if page_index < content_offset:
+            display_page: int | str = ""
+        else:
+            display_page = page_index - content_offset + 1
+        header_html = _header_template(page_marker, theme=theme, enabled=True)
+        footer_html = _footer_template(
+            document_title, footer_title=footer_title, page_number=display_page
+        )
+        sections.append(
+            '<section class="op"><div class="op-header">'
+            + header_html
+            + '</div><div class="op-spacer"></div><div class="op-footer">'
+            + footer_html
+            + "</div></section>"
+        )
+    return (
+        '<!doctype html><html><head><meta charset="utf-8"><style>'
+        + _OVERLAY_CSS
+        + "</style></head><body>"
+        + "".join(sections)
+        + "</body></html>"
+    )
 
 
 def print_pdf(
@@ -668,6 +768,56 @@ def print_pdf(
     footer_title: bool = True,
     header: bool = True,
     theme: str | None = None,
+    browser: Any | None = None,
+    progress: Callable[[str], None] | None = None,
+    page_progress: Callable[[int, int], None] | None = None,
+) -> None:
+    """Render one HTML document to PDF, optionally reusing an open browser."""
+    if browser is None:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(args=_LAUNCH_ARGS)
+            try:
+                _print_pdf(
+                    html_path,
+                    output_pdf,
+                    browser,
+                    document_title=document_title,
+                    include_header_footer=include_header_footer,
+                    footer_title=footer_title,
+                    header=header,
+                    theme=theme,
+                    progress=progress,
+                    page_progress=page_progress,
+                )
+            finally:
+                browser.close()
+    else:
+        _print_pdf(
+            html_path,
+            output_pdf,
+            browser,
+            document_title=document_title,
+            include_header_footer=include_header_footer,
+            footer_title=footer_title,
+            header=header,
+            theme=theme,
+            progress=progress,
+            page_progress=page_progress,
+        )
+
+
+def _print_pdf(
+    html_path: Path,
+    output_pdf: Path,
+    browser: Any,
+    *,
+    document_title: str,
+    include_header_footer: bool,
+    footer_title: bool,
+    header: bool,
+    theme: str | None,
+    progress: Callable[[str], None] | None = None,
+    page_progress: Callable[[int, int], None] | None = None,
 ) -> None:
     margin = {
         "top": "18mm" if include_header_footer else "0",
@@ -676,10 +826,10 @@ def print_pdf(
         "right": "0",
     }
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page()
-        page.goto(_to_file_url(html_path), wait_until="networkidle")
+    page = browser.new_page()
+    try:
+        page.goto(_to_file_url(html_path), wait_until="load")
+        _wait_fonts(page)
         page.emulate_media(media="print")
 
         if include_header_footer and header:
@@ -694,6 +844,8 @@ def print_pdf(
                 prefix="aesthepdf-pages-", dir=output_pdf.parent
             ) as page_tmp:
                 page_tmp_dir = Path(page_tmp)
+                if progress is not None:
+                    progress("分页探测与页码解析")
                 probe_pdf = page_tmp_dir / "probe.pdf"
                 page.pdf(
                     path=str(probe_pdf),
@@ -703,7 +855,7 @@ def print_pdf(
                     margin=margin,
                 )
                 page_texts, marker_positions, page_heights = _read_probe_pdf(
-                    probe_pdf, marker_sources + toc_probes
+                    probe_pdf, marker_sources + toc_probes, page_progress=page_progress
                 )
                 page_markers = _resolve_page_markers(
                     page_texts,
@@ -726,6 +878,8 @@ def print_pdf(
                     )
                 _remove_page_marker_probes(page)
 
+                if progress is not None:
+                    progress("渲染正文")
                 base_pdf = page_tmp_dir / "base.pdf"
                 page.pdf(
                     path=str(base_pdf),
@@ -742,58 +896,57 @@ def print_pdf(
                         f"probe={len(page_markers)}, body={base_page_count}"
                     )
 
+                if progress is not None:
+                    progress("叠加页眉页脚")
                 overlay_page = browser.new_page()
-                overlay_page.set_content(
-                    "<!doctype html><html><head><style>"
-                    "@page{size:A4;margin:0}html,body{margin:0;background:transparent}"
-                    "</style></head><body></body></html>",
-                    wait_until="load",
-                )
-                overlays: list[Path] = []
-                for page_index, page_marker in enumerate(page_markers):
-                    overlay = page_tmp_dir / f"overlay-{page_index + 1:04d}.pdf"
-                    if page_index < content_offset:
-                        display_page: int | str = ""
-                    else:
-                        display_page = page_index - content_offset + 1
-                    overlay_page.pdf(
-                        path=str(overlay),
-                        format="A4",
-                        print_background=False,
-                        display_header_footer=True,
-                        header_template=_header_template(
-                            page_marker, theme=theme, enabled=True
-                        ),
-                        footer_template=_footer_template(
+                try:
+                    overlay_page.set_content(
+                        _build_overlay_html(
+                            page_markers,
+                            content_offset,
                             document_title,
                             footer_title=footer_title,
-                            page_number=display_page,
+                            theme=theme,
                         ),
-                        margin=margin,
+                        wait_until="load",
                     )
-                    overlays.append(overlay)
-                overlay_page.close()
-                merge_pdf_overlays(base_pdf, overlays, output_pdf)
-        else:
-            with tempfile.TemporaryDirectory(
-                prefix="aesthepdf-print-", dir=output_pdf.parent
-            ) as print_tmp:
-                raw_pdf = Path(print_tmp) / "raw.pdf"
-                page.pdf(
-                    path=str(raw_pdf),
-                    format="A4",
-                    print_background=True,
-                    display_header_footer=include_header_footer,
-                    header_template="<span></span>",
-                    footer_template=(
-                        _footer_template(document_title, footer_title=footer_title)
-                        if include_header_footer
-                        else "<span></span>"
-                    ),
-                    margin=margin,
+                    _wait_fonts(overlay_page)
+                    overlays_pdf = page_tmp_dir / "overlays.pdf"
+                    overlay_page.pdf(
+                        path=str(overlays_pdf),
+                        format="A4",
+                        print_background=False,
+                        display_header_footer=False,
+                        margin={
+                            "top": "0",
+                            "bottom": "0",
+                            "left": "0",
+                            "right": "0",
+                        },
+                    )
+                finally:
+                    overlay_page.close()
+                merge_overlay_pages(
+                    base_pdf, overlays_pdf, output_pdf, page_progress=page_progress
                 )
-                normalize_pdf(raw_pdf, output_pdf)
-        browser.close()
+        else:
+            if progress is not None:
+                progress("渲染封面页" if not include_header_footer else "渲染页面")
+            page.pdf(
+                path=str(output_pdf),
+                format="A4",
+                print_background=True,
+                display_header_footer=include_header_footer,
+                header_template="<span></span>",
+                footer_template=(
+                    _footer_template(document_title, footer_title=footer_title)
+                    if include_header_footer
+                    else "<span></span>"
+                ),
+                margin=margin,
+            )
+    finally:
+        page.close()
 
 
 def split_cover_and_body(html_path: Path, cover_html: Path, body_html: Path) -> bool:
@@ -1011,11 +1164,41 @@ def _write_pdf(writer: Any, output_pdf: Path) -> None:
         writer.write(file)
 
 
+def _pikepdf_normalize_unicode_mappings(pdf: Any) -> None:
+    """Normalize compatibility characters in ToUnicode CMaps (pikepdf backend)."""
+    def normalize_resources(resources: Any) -> None:
+        if resources is None:
+            return
+        fonts = resources.get("/Font")
+        if fonts is not None:
+            for font in fonts.values():
+                to_unicode = font.get("/ToUnicode")
+                if to_unicode is None:
+                    continue
+                stream = (
+                    to_unicode.get_object()
+                    if hasattr(to_unicode, "get_object")
+                    else to_unicode
+                )
+                data = stream.read_bytes()
+                normalized = _normalize_cmap_data(data)
+                if normalized != data:
+                    stream.write(normalized)
+        xobjects = resources.get("/XObject")
+        if xobjects is not None:
+            for xobject in xobjects.values():
+                if xobject.get("/Subtype") == pikepdf.Name("/Form"):
+                    normalize_resources(xobject.get("/Resources"))
+
+    for page in pdf.pages:
+        normalize_resources(page.get("/Resources"))
+
+
 def normalize_pdf(input_pdf: Path, output_pdf: Path) -> None:
-    reader = PdfReader(str(input_pdf))
-    writer = PdfWriter()
-    writer.clone_document_from_reader(reader)
-    _write_pdf(writer, output_pdf)
+    """Rewrite a PDF with normalized ToUnicode CMaps (pikepdf backend)."""
+    with pikepdf.open(str(input_pdf)) as pdf:
+        _pikepdf_normalize_unicode_mappings(pdf)
+        pdf.save(str(output_pdf))
 
 
 def merge_pdf_overlays(
@@ -1040,44 +1223,137 @@ def merge_pdf_overlays(
     _write_pdf(writer, output_pdf)
 
 
-def merge_pdfs(parts: list[Path], output_pdf: Path) -> None:
+def _merge_overlay_page(
+    base_page: Any, overlay_page: Any, base_pdf: Any, overlay_pdf: Any
+) -> None:
+    """Overlay one header/footer page via a Form XObject (isolated resources)."""
+    contents = overlay_page.get("/Contents")
+    if contents is None:
+        return
+    streams = contents if isinstance(contents, pikepdf.Array) else [contents]
+    data = b"".join(
+        (stream.get_object() if hasattr(stream, "get_object") else stream).read_bytes()
+        for stream in streams
+    )
+
+    form = base_pdf.make_stream(data)
+    form["/Type"] = pikepdf.Name("/XObject")
+    form["/Subtype"] = pikepdf.Name("/Form")
+    media_box = overlay_page.get("/MediaBox")
+    if media_box is not None:
+        form["/BBox"] = pikepdf.Array([float(value) for value in media_box])
+    resources = overlay_page.get("/Resources")
+    if resources is not None:
+        if not resources.is_indirect:
+            resources = overlay_pdf.make_indirect(resources)
+        form["/Resources"] = base_pdf.copy_foreign(resources)
+    base_pdf.make_indirect(form)
+
+    base_resources = base_page.get("/Resources")
+    if base_resources is None:
+        base_page["/Resources"] = base_resources = pikepdf.Dictionary()
+    xobjects = base_resources.get("/XObject")
+    if xobjects is None:
+        base_resources["/XObject"] = xobjects = pikepdf.Dictionary()
+    form_name = pikepdf.Name(f"/AesthePDFOv{len(xobjects)}")
+    xobjects[form_name] = form
+
+    draw_cmd = f"q {form_name} Do Q\n".encode("ascii")
+    command_stream = base_pdf.make_stream(draw_cmd)
+    base_pdf.make_indirect(command_stream)
+    base_contents = base_page.get("/Contents")
+    if base_contents is None:
+        base_page["/Contents"] = command_stream
+    elif isinstance(base_contents, pikepdf.Array):
+        base_contents.append(command_stream)
+    else:
+        base_page["/Contents"] = pikepdf.Array([base_contents, command_stream])
+
+
+def merge_overlay_pages(
+    base_pdf: Path,
+    overlay_pdf: Path,
+    output_pdf: Path,
+    page_progress: Callable[[int, int], None] | None = None,
+) -> None:
+    """Overlay a multi-page header/footer PDF onto a base PDF page-by-page."""
+    with pikepdf.open(str(base_pdf)) as base, pikepdf.open(str(overlay_pdf)) as overlay:
+        if len(base.pages) != len(overlay.pages):
+            raise RuntimeError(
+                "Overlay page count mismatch: "
+                f"base={len(base.pages)}, overlay={len(overlay.pages)}"
+            )
+        total = len(base.pages)
+        for done, (base_page, overlay_page) in enumerate(
+            zip(base.pages, overlay.pages, strict=True), start=1
+        ):
+            _merge_overlay_page(base_page, overlay_page, base, overlay)
+            if page_progress is not None:
+                page_progress(done, total)
+        _pikepdf_normalize_unicode_mappings(base)
+        base.save(str(output_pdf))
+
+
+def merge_pdfs(
+    parts: list[Path],
+    output_pdf: Path,
+    page_progress: Callable[[int, int], None] | None = None,
+) -> None:
+    """Prepend prefix PDFs (e.g. cover) in front of the body, shifting links."""
     if not parts:
         raise ValueError("At least one PDF is required")
 
-    body_reader = PdfReader(str(parts[-1]))
-    writer = PdfWriter()
-    writer.clone_document_from_reader(body_reader)
-    prefix_page_count = 0
-    for part in reversed(parts[:-1]):
-        prefix_reader = PdfReader(str(part))
-        prefix_page_count += len(prefix_reader.pages)
-        for page in reversed(prefix_reader.pages):
-            writer.insert_page(page, index=0)
-    if prefix_page_count:
-        _shift_numeric_link_destinations(writer, prefix_page_count)
-    _write_pdf(writer, output_pdf)
+    with pikepdf.open(str(parts[-1])) as writer:
+        body_count = len(writer.pages)
+        prefix_page_count = 0
+        done = 0
+        for part in reversed(parts[:-1]):
+            with pikepdf.open(str(part)) as prefix:
+                pages = list(prefix.pages)
+                prefix_page_count += len(pages)
+                for index, page in enumerate(pages):
+                    writer.pages.insert(index, page)
+                    done += 1
+                    if page_progress is not None:
+                        page_progress(done, body_count + prefix_page_count)
+        if prefix_page_count:
+            _shift_numeric_link_destinations(writer, prefix_page_count)
+        _pikepdf_normalize_unicode_mappings(writer)
+        writer.save(str(output_pdf))
+    if page_progress is not None:
+        page_progress(body_count + prefix_page_count, body_count + prefix_page_count)
 
 
-def _shift_numeric_link_destinations(writer: Any, offset: int) -> None:
+def _shift_numeric_link_destinations(pdf: Any, offset: int) -> None:
     """Shift page-index link destinations after prefix pages are inserted."""
-    for page in writer.pages[offset:]:
-        for annotation_ref in page.get("/Annots") or []:
-            annotation = annotation_ref.get_object()
-            if annotation.get("/Subtype") != "/Link":
+    for page in list(pdf.pages)[offset:]:
+        annots = page.get("/Annots")
+        if annots is None:
+            continue
+        for annot_ref in annots:
+            annotation = (
+                annot_ref.get_object()
+                if hasattr(annot_ref, "get_object")
+                else annot_ref
+            )
+            if annotation.get("/Subtype") != pikepdf.Name("/Link"):
                 continue
             destination = annotation.get("/Dest")
             if destination is None:
                 action = annotation.get("/A")
                 if action is not None:
-                    action = action.get_object()
-                    if action.get("/S") == "/GoTo":
+                    action = (
+                        action.get_object() if hasattr(action, "get_object") else action
+                    )
+                    if action.get("/S") == pikepdf.Name("/GoTo"):
                         destination = action.get("/D")
             if (
                 destination is not None
+                and isinstance(destination, pikepdf.Array)
                 and len(destination) > 0
-                and isinstance(destination[0], NumberObject)
+                and isinstance(destination[0], int)
             ):
-                destination[0] = NumberObject(int(destination[0]) + offset)
+                destination[0] = int(destination[0]) + offset
 
 
 def _validate_io_paths(input_md: Path, output_pdf: Path) -> tuple[Path, Path]:
@@ -1099,6 +1375,8 @@ def render(
     theme: str = DEFAULT_THEME,
     toc: bool | None = None,
     document_title: str | None = None,
+    progress: Callable[[int, int, str], None] | None = None,
+    page_progress: Callable[[int, int], None] | None = None,
 ) -> Path:
     _require_tools()
     input_md, output_pdf = _validate_io_paths(input_md, output_pdf)
@@ -1109,6 +1387,19 @@ def render(
     defaults = theme_config.get("defaults", DEFAULT_THEME_DEFAULTS)
     use_toc = defaults.get("toc", True) if toc is None else toc
     cover = _cover_enabled(input_md, theme_config)
+    meta_title = document_title or read_document_title(input_md) or input_md.stem
+    footer_title = defaults.get("footer_title", True)
+    show_header = defaults.get("header", True)
+
+    stage = {"index": 0, "total": 0}
+
+    def report(label: str) -> None:
+        stage["index"] += 1
+        if progress is not None:
+            progress(stage["index"], stage["total"], label)
+
+    def set_total(total: int) -> None:
+        stage["total"] = total
 
     with tempfile.TemporaryDirectory(prefix="aesthepdf-") as tmp:
         tmp_dir = Path(tmp)
@@ -1118,50 +1409,128 @@ def render(
         cover_pdf = tmp_dir / "cover.pdf"
         body_pdf = tmp_dir / "body.pdf"
 
-        run_pandoc(
-            input_md,
-            full_html,
-            theme_config=theme_config,
-            toc=use_toc,
-            theme=theme,
-            cover=cover,
-            pandoc_options=pandoc_options,
-        )
+        # Pandoc 与 Chromium 启动并行：pandoc 在线程中跑，主线程启动浏览器
+        report("Pandoc 转换 Markdown → HTML")
+        pandoc_error: dict[str, BaseException] = {}
 
-        meta_title = document_title or read_document_title(input_md) or input_md.stem
-        footer_title = defaults.get("footer_title", True)
-        show_header = defaults.get("header", True)
+        def run_pandoc_thread() -> None:
+            try:
+                run_pandoc(
+                    input_md,
+                    full_html,
+                    theme_config=theme_config,
+                    toc=use_toc,
+                    theme=theme,
+                    cover=cover,
+                    pandoc_options=pandoc_options,
+                )
+            except BaseException as exc:
+                pandoc_error["exc"] = exc
 
-        if cover and split_cover_and_body(full_html, cover_html, body_html):
-            print_pdf(
-                cover_html,
-                cover_pdf,
-                document_title=meta_title,
-                include_header_footer=False,
-                theme=theme,
-            )
-            print_pdf(
-                body_html,
-                body_pdf,
-                document_title=meta_title,
-                include_header_footer=True,
-                footer_title=footer_title,
-                header=show_header,
-                theme=theme,
-            )
-            merge_pdfs([cover_pdf, body_pdf], output_pdf)
-        else:
-            print_pdf(
-                full_html,
-                output_pdf,
-                document_title=meta_title,
-                include_header_footer=True,
-                footer_title=footer_title,
-                header=show_header,
-                theme=theme,
-            )
+        pandoc_thread = threading.Thread(target=run_pandoc_thread, daemon=True)
+        pandoc_thread.start()
+
+        with sync_playwright() as p:
+            report("启动 Chromium 渲染引擎")
+            browser = p.chromium.launch(args=_LAUNCH_ARGS)
+            pandoc_thread.join()
+            if "exc" in pandoc_error:
+                raise pandoc_error["exc"]
+            try:
+                cover_used = cover and split_cover_and_body(
+                    full_html, cover_html, body_html
+                )
+                set_total(6 if cover_used else 5)
+                if cover_used:
+                    # 封面渲染与正文渲染并行（各自独立浏览器实例）
+                    cover_error: dict[str, BaseException] = {}
+
+                    def render_cover_thread() -> None:
+                        try:
+                            with sync_playwright() as cover_p:
+                                cover_browser = cover_p.chromium.launch(
+                                    args=_LAUNCH_ARGS
+                                )
+                                try:
+                                    print_pdf(
+                                        cover_html,
+                                        cover_pdf,
+                                        document_title=meta_title,
+                                        include_header_footer=False,
+                                        theme=theme,
+                                        browser=cover_browser,
+                                    )
+                                finally:
+                                    cover_browser.close()
+                        except BaseException as exc:
+                            cover_error["exc"] = exc
+
+                    cover_thread = threading.Thread(
+                        target=render_cover_thread, daemon=True
+                    )
+                    cover_thread.start()
+                    print_pdf(
+                        body_html,
+                        body_pdf,
+                        document_title=meta_title,
+                        include_header_footer=True,
+                        footer_title=footer_title,
+                        header=show_header,
+                        theme=theme,
+                        browser=browser,
+                        progress=report,
+                        page_progress=page_progress,
+                    )
+                    cover_thread.join()
+                    if "exc" in cover_error:
+                        raise cover_error["exc"]
+                    report("合并封面与正文")
+                    merge_pdfs(
+                        [cover_pdf, body_pdf], output_pdf, page_progress=page_progress
+                    )
+                else:
+                    print_pdf(
+                        full_html,
+                        output_pdf,
+                        document_title=meta_title,
+                        include_header_footer=True,
+                        footer_title=footer_title,
+                        header=show_header,
+                        theme=theme,
+                        browser=browser,
+                        progress=report,
+                        page_progress=page_progress,
+                    )
+            finally:
+                browser.close()
 
     return output_pdf
+
+
+def _make_progress_bar() -> tuple[
+    Callable[[int, int, str], None], Callable[[int, int], None], Any
+]:
+    """Build tqdm stage/page progress callbacks for the CLI."""
+    encoding = (getattr(sys.stderr, "encoding", "") or "").lower()
+    bar = tqdm(
+        desc="准备中",
+        total=None,
+        unit="页",
+        leave=False,
+        file=sys.stderr,
+        ascii=encoding not in ("utf-8", "utf8"),
+    )
+
+    def stage(index: int, total: int, label: str) -> None:
+        bar.set_description(label)
+
+    def page_progress(done: int, total: int) -> None:
+        if bar.total != total:
+            bar.total = total
+        if done > bar.n:
+            bar.update(done - bar.n)
+
+    return stage, page_progress, bar
 
 
 def main() -> None:
@@ -1196,7 +1565,19 @@ def main() -> None:
     default_toc = theme_config.get("defaults", {}).get("toc", True)
     use_toc = False if args.no_toc else default_toc
 
-    pdf = render(args.input, output, theme=theme, toc=use_toc, document_title=args.title)
+    stage_progress, page_progress, bar = _make_progress_bar()
+    try:
+        pdf = render(
+            args.input,
+            output,
+            theme=theme,
+            toc=use_toc,
+            document_title=args.title,
+            progress=stage_progress,
+            page_progress=page_progress,
+        )
+    finally:
+        bar.close()
     print(f"Wrote {pdf} (theme: {theme})")
 
 
